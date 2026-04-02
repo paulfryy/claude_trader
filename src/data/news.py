@@ -23,7 +23,7 @@ class NewsDataClient:
 
     def get_news(
         self,
-        symbols: list[str] | None = None,
+        symbols: str | None = None,
         start: datetime | None = None,
         limit: int = 20,
     ) -> list[dict]:
@@ -42,6 +42,7 @@ class NewsDataClient:
         )
         news = self._client.get_news(request)
 
+        articles = news.data.get("news", [])
         return [
             {
                 "headline": article.headline,
@@ -51,7 +52,7 @@ class NewsDataClient:
                 "created_at": article.created_at.isoformat(),
                 "url": article.url,
             }
-            for article in news.news
+            for article in articles
         ]
 
     def get_market_news(self, limit: int = 15) -> list[dict]:
@@ -60,4 +61,4 @@ class NewsDataClient:
 
     def get_symbol_news(self, symbol: str, limit: int = 10) -> list[dict]:
         """Fetch news for a specific symbol."""
-        return self.get_news(symbols=[symbol], limit=limit)
+        return self.get_news(symbols=symbol, limit=limit)

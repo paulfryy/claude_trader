@@ -2,7 +2,7 @@
 Market data client — fetches price data, options chains, and account info from Alpaca.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 from alpaca.data.historical import StockHistoricalDataClient
@@ -37,6 +37,9 @@ class MarketDataClient:
         limit: int = 100,
     ) -> pd.DataFrame:
         """Fetch historical OHLCV bars for a symbol."""
+        if start is None:
+            start = datetime.now() - timedelta(days=365)
+
         request = StockBarsRequest(
             symbol_or_symbols=symbol,
             timeframe=timeframe,
@@ -45,7 +48,11 @@ class MarketDataClient:
             limit=limit,
         )
         bars = self._data_client.get_stock_bars(request)
-        return bars.df
+        df = bars.df
+        # Drop the symbol level from the multi-index so columns are accessible by name
+        if isinstance(df.index, pd.MultiIndex):
+            df = df.reset_index(level="symbol", drop=True)
+        return df
 
     def get_latest_quote(self, symbol: str) -> dict:
         """Get the latest quote (bid/ask) for a symbol."""
