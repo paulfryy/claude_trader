@@ -28,6 +28,7 @@ class ClaudeAnalyst:
         watchlist_data: dict[str, dict],
         market_news: list[dict],
         symbol_news: dict[str, list[dict]],
+        cycle_mode: str = "morning",
     ) -> MarketAnalysis:
         """
         Run a full market analysis cycle.
@@ -38,6 +39,7 @@ class ClaudeAnalyst:
             watchlist_data: Dict of symbol -> {bars, indicators, quote} for each watchlist symbol
             market_news: Recent general market news
             symbol_news: Dict of symbol -> news articles
+            cycle_mode: "morning", "midday", or "closing"
         """
         prompt = self._build_analysis_prompt(
             account_info=account_info,
@@ -45,14 +47,15 @@ class ClaudeAnalyst:
             watchlist_data=watchlist_data,
             market_news=market_news,
             symbol_news=symbol_news,
+            cycle_mode=cycle_mode,
         )
 
-        logger.info("Sending analysis request to Claude (%s)", self._model)
+        logger.info("Sending analysis request to Claude (%s, %s mode)", self._model, cycle_mode)
 
         response = self._client.messages.create(
             model=self._model,
             max_tokens=4096,
-            system=self._system_prompt(),
+            system=self._system_prompt(cycle_mode),
             messages=[{"role": "user", "content": prompt}],
         )
 
@@ -62,16 +65,43 @@ class ClaudeAnalyst:
         analysis = self._parse_response(raw_response)
         return analysis
 
-    def _system_prompt(self) -> str:
+    def _system_prompt(self, cycle_mode: str = "morning") -> str:
         risk = self.settings.risk
+
+        mode_instructions = {
+            "morning": (
+                "CYCLE MODE: MORNING — Full trading cycle.\n"
+                "- Analyze market conditions and all watchlist symbols\n"
+                "- Propose new entries where setups are strong\n"
+                "- Review existing positions — adjust stops or close if thesis is broken\n"
+                "- This is the primary decision-making cycle of the day"
+            ),
+            "midday": (
+                "CYCLE MODE: MIDDAY — Defensive check.\n"
+                "- Focus on managing existing positions (stop adjustments, exits)\n"
+                "- Only propose new entries if there's a compelling catalyst (breaking news, major move)\n"
+                "- Be more selective than the morning cycle"
+            ),
+            "closing": (
+                "CYCLE MODE: CLOSING — End-of-day review. NO NEW ENTRIES.\n"
+                "- Do NOT propose any buy signals — they will be rejected\n"
+                "- Review existing positions: should any be closed before overnight hold?\n"
+                "- Summarize the day's market action and what to watch for tomorrow\n"
+                "- Include observations that should inform tomorrow's morning analysis\n"
+                "- Add a 'tomorrow_watchlist' note in key_observations for morning follow-up"
+            ),
+        }
+
         return f"""You are an autonomous trading agent managing a real portfolio. Your job is to analyze market conditions and generate actionable trade signals.
+
+{mode_instructions.get(cycle_mode, mode_instructions["morning"])}
 
 PORTFOLIO RULES:
 - Max position size: {risk.max_position_pct:.0%} of portfolio
 - Max total exposure: {risk.max_total_exposure_pct:.0%} of portfolio
 - Max options exposure: {risk.max_options_exposure_pct:.0%} of portfolio
 - Default stop-loss: {risk.stop_loss_default_pct:.0%}
-- PDT limit: {risk.max_day_trades} day trades per 5 rolling business days (avoid day trades)
+- PDT limit: {risk.max_day_trades} day trades per 5 rolling business days (NEVER propose selling a position that was opened today — this counts as a day trade)
 - Max drawdown circuit breaker: {risk.max_drawdown_pct:.0%}
 
 STRATEGY:

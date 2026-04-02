@@ -46,25 +46,54 @@ def setup_logging(level: str = "INFO"):
     )
 
 
+class CycleMode:
+    """Controls what actions are allowed in each cycle."""
+
+    MORNING = "morning"       # Full cycle: analyze + open + close positions
+    MIDDAY = "midday"         # Defensive: analyze + close/adjust, selective new entries
+    CLOSING = "closing"       # Review only: analyze + close positions, NO new entries
+
+    @staticmethod
+    def from_time(hour: int) -> str:
+        """Determine cycle mode from current hour (ET)."""
+        if hour < 12:
+            return CycleMode.MORNING
+        elif hour < 15:
+            return CycleMode.MIDDAY
+        else:
+            return CycleMode.CLOSING
+
+
 def run_analysis_cycle(
     settings=None,
     watchlist: list[str] | None = None,
+    mode: str | None = None,
 ):
     """
     Run one complete analysis and trading cycle.
+
+    Args:
+        settings: Application settings
+        watchlist: Symbols to analyze
+        mode: Cycle mode — "morning", "midday", or "closing".
+              If None, determined automatically from current time.
 
     Steps:
     1. Fetch portfolio state
     2. Fetch market data & news for watchlist
     3. Run Claude analysis
     4. Validate signals against risk rules
-    5. Execute approved trades
+    5. Execute approved trades (unless closing cycle)
     6. Log everything
     """
     if settings is None:
         settings = load_settings()
 
     watchlist = watchlist or DEFAULT_WATCHLIST
+
+    # Determine cycle mode
+    if mode is None:
+        mode = CycleMode.from_time(datetime.now().hour)
 
     # Initialize components
     market_data = MarketDataClient(settings)
@@ -81,7 +110,11 @@ def run_analysis_cycle(
         logger.info("Market is closed. Skipping trading cycle.")
         return
 
-    logger.info("=== Starting analysis cycle at %s ===", datetime.now().strftime("%Y-%m-%d %H:%M"))
+    logger.info(
+        "=== Starting %s analysis cycle at %s ===",
+        mode.upper(),
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
+    )
 
     # Step 2: Fetch portfolio state
     account_info = market_data.get_account()
@@ -126,13 +159,14 @@ def run_analysis_cycle(
             logger.warning("Failed to fetch news for %s: %s", symbol, e)
 
     # Step 5: Run Claude analysis
-    logger.info("Running Claude analysis on %d symbols...", len(watchlist_data))
+    logger.info("Running Claude analysis on %d symbols (%s mode)...", len(watchlist_data), mode)
     analysis = analyst.analyze_market(
         account_info=account_info,
         positions=positions,
         watchlist_data=watchlist_data,
         market_news=market_news,
         symbol_news=symbol_news,
+        cycle_mode=mode,
     )
 
     logger.info(
@@ -143,17 +177,54 @@ def run_analysis_cycle(
         len(analysis.positions_to_close),
     )
 
-    # Step 6: Close positions Claude wants to exit
+    # Step 6: Close positions Claude wants to exit (allowed in ALL cycle modes)
     execution_results = []
     for symbol in analysis.positions_to_close:
+        # PDT protection: don't sell anything we bought today
+        bought_today = _was_bought_today(symbol, positions)
+        if bought_today:
+            logger.warning(
+                "PDT PROTECTION: Skipping close of %s — position was opened today. "
+                "Selling would count as a day trade.",
+                symbol,
+            )
+            continue
+
         result = executor.close_position(symbol)
         execution_results.append(result)
         logger.info("Closing position: %s → %s", symbol, result["status"])
 
     # Step 7: Validate and execute new trade signals
     rejected_signals = []
+
+    # In closing mode, block all new entries — analysis only
+    allow_new_entries = mode != CycleMode.CLOSING
+
     for signal in analysis.trade_signals:
         if signal.action == TradeAction.HOLD:
+            continue
+
+        is_buy = signal.action in (
+            TradeAction.BUY, TradeAction.BUY_CALL, TradeAction.BUY_PUT,
+        )
+        is_sell = signal.action in (
+            TradeAction.SELL, TradeAction.SELL_CALL, TradeAction.SELL_PUT,
+        )
+
+        # Block new entries in closing cycle
+        if is_buy and not allow_new_entries:
+            reason = f"Closing cycle — no new entries. Signal logged for morning review."
+            logger.info("CLOSING MODE: Skipping %s %s — %s", signal.action.value, signal.symbol, reason)
+            rejected_signals.append({"symbol": signal.symbol, "reason": reason})
+            trade_journal.log_rejection(signal, reason, portfolio_state)
+            continue
+
+        # PDT protection: don't sell anything we bought today
+        if is_sell and _was_bought_today(signal.symbol, positions):
+            reason = "PDT protection: position was opened today, selling would count as a day trade."
+            logger.warning("PDT PROTECTION: %s %s — %s", signal.action.value, signal.symbol, reason)
+            rejected_signals.append({"symbol": signal.symbol, "reason": reason})
+            trade_journal.log_rejection(signal, reason, portfolio_state)
             continue
 
         # Risk check
@@ -210,6 +281,30 @@ def run_analysis_cycle(
         sum(1 for r in execution_results if r.get("status") == "submitted"),
         len(rejected_signals),
     )
+
+
+def _was_bought_today(symbol: str, positions: list[dict]) -> bool:
+    """
+    Check if a position was opened today (same calendar day).
+    If we sell it, it would count as a day trade.
+
+    Heuristic: Alpaca doesn't directly expose the open date in positions,
+    so we check our own trade journal for same-day buys.
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    trade_log_dir = __import__("src.config", fromlist=["TRADE_LOGS_DIR"]).TRADE_LOGS_DIR
+
+    if not trade_log_dir.exists():
+        return False
+
+    for filepath in trade_log_dir.glob(f"{today}_{symbol}_buy_*.json"):
+        return True
+    for filepath in trade_log_dir.glob(f"{today}_{symbol}_buy_call_*.json"):
+        return True
+    for filepath in trade_log_dir.glob(f"{today}_{symbol}_buy_put_*.json"):
+        return True
+
+    return False
 
 
 def main():
