@@ -1,0 +1,38 @@
+[project]
+name = "claude-trading-agent"
+version = "0.1.0"
+description = "Autonomous Claude-powered trading agent managing a portfolio via Alpaca"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.52.0",
+    "alpaca-py>=0.33.0",
+    "pandas>=2.2.0",
+    "numpy>=2.0.0",
+    "ta>=0.11.0",             # Technical analysis indicators
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",        # Data validation & settings
+    "pydantic-settings>=2.0.0",
+    "schedule>=1.2.0",        # Task scheduling
+    "rich>=13.0.0",           # Pretty logging output
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+
+[project.scripts]
+trading-agent = "src.agent.orchestrator:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

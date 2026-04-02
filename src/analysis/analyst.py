@@ -1,0 +1,175 @@
+"""
+Claude analysis engine — constructs prompts, calls Claude, and parses structured trade signals.
+"""
+
+import json
+import logging
+
+import anthropic
+
+from src.analysis.signals import MarketAnalysis
+from src.config import Settings
+
+logger = logging.getLogger(__name__)
+
+
+class ClaudeAnalyst:
+    """Uses Claude to analyze market data and generate trade signals."""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self._client = anthropic.Anthropic(api_key=settings.claude.anthropic_api_key)
+        self._model = settings.claude.claude_model
+
+    def analyze_market(
+        self,
+        account_info: dict,
+        positions: list[dict],
+        watchlist_data: dict[str, dict],
+        market_news: list[dict],
+        symbol_news: dict[str, list[dict]],
+    ) -> MarketAnalysis:
+        """
+        Run a full market analysis cycle.
+
+        Args:
+            account_info: Current account state (equity, cash, buying power)
+            positions: Current open positions with P&L
+            watchlist_data: Dict of symbol -> {bars, indicators, quote} for each watchlist symbol
+            market_news: Recent general market news
+            symbol_news: Dict of symbol -> news articles
+        """
+        prompt = self._build_analysis_prompt(
+            account_info=account_info,
+            positions=positions,
+            watchlist_data=watchlist_data,
+            market_news=market_news,
+            symbol_news=symbol_news,
+        )
+
+        logger.info("Sending analysis request to Claude (%s)", self._model)
+
+        response = self._client.messages.create(
+            model=self._model,
+            max_tokens=4096,
+            system=self._system_prompt(),
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        raw_response = response.content[0].text
+        logger.info("Received analysis response (%d chars)", len(raw_response))
+
+        analysis = self._parse_response(raw_response)
+        return analysis
+
+    def _system_prompt(self) -> str:
+        risk = self.settings.risk
+        return f"""You are an autonomous trading agent managing a real portfolio. Your job is to analyze market conditions and generate actionable trade signals.
+
+PORTFOLIO RULES:
+- Max position size: {risk.max_position_pct:.0%} of portfolio
+- Max total exposure: {risk.max_total_exposure_pct:.0%} of portfolio
+- Max options exposure: {risk.max_options_exposure_pct:.0%} of portfolio
+- Default stop-loss: {risk.stop_loss_default_pct:.0%}
+- PDT limit: {risk.max_day_trades} day trades per 5 rolling business days (avoid day trades)
+- Max drawdown circuit breaker: {risk.max_drawdown_pct:.0%}
+
+STRATEGY:
+- Swing trading US equities and ETFs (hold 2-14 days typically)
+- Short-term options for leveraged plays with defined risk
+- Focus on high-probability setups with favorable risk/reward (>2:1)
+- Preserve capital — don't force trades when conditions are unclear
+
+RESPONSE FORMAT:
+You must respond with valid JSON matching this schema:
+{{
+    "market_regime": "bull|bear|sideways|volatile",
+    "regime_confidence": "low|medium|high",
+    "key_observations": ["observation 1", "observation 2"],
+    "sector_outlook": {{"Technology": "bullish", "Energy": "neutral"}},
+    "trade_signals": [
+        {{
+            "symbol": "AAPL",
+            "action": "buy|sell|hold|buy_call|buy_put|sell_call|sell_put",
+            "conviction": "low|medium|high",
+            "target_price": 150.00,
+            "stop_loss_price": 140.00,
+            "position_size_pct": 0.10,
+            "rationale": "Why this trade makes sense",
+            "time_horizon": "3-5 days",
+            "risk_reward_ratio": 2.5,
+            "strike_price": null,
+            "expiration_date": null,
+            "option_type": null
+        }}
+    ],
+    "positions_to_close": ["SYMBOL1"]
+}}
+
+Be decisive but disciplined. Every trade must have a clear rationale and exit plan."""
+
+    def _build_analysis_prompt(
+        self,
+        account_info: dict,
+        positions: list[dict],
+        watchlist_data: dict[str, dict],
+        market_news: list[dict],
+        symbol_news: dict[str, list[dict]],
+    ) -> str:
+        sections = []
+
+        # Account overview
+        sections.append("## ACCOUNT STATUS")
+        sections.append(json.dumps(account_info, indent=2, default=str))
+
+        # Current positions
+        sections.append("\n## CURRENT POSITIONS")
+        if positions:
+            sections.append(json.dumps(positions, indent=2, default=str))
+        else:
+            sections.append("No open positions.")
+
+        # Watchlist analysis
+        sections.append("\n## WATCHLIST DATA")
+        for symbol, data in watchlist_data.items():
+            sections.append(f"\n### {symbol}")
+            if "indicators" in data:
+                sections.append("Technical Indicators:")
+                sections.append(json.dumps(data["indicators"], indent=2, default=str))
+            if "quote" in data:
+                sections.append(f"Latest Quote: {json.dumps(data['quote'], default=str)}")
+
+        # News
+        sections.append("\n## MARKET NEWS")
+        for article in market_news[:10]:
+            sections.append(f"- [{article['source']}] {article['headline']}")
+            if article.get("summary"):
+                sections.append(f"  {article['summary'][:200]}")
+
+        for symbol, articles in symbol_news.items():
+            if articles:
+                sections.append(f"\n### {symbol} News")
+                for article in articles[:5]:
+                    sections.append(f"- {article['headline']}")
+
+        sections.append(
+            "\n## INSTRUCTIONS"
+            "\nAnalyze the above data and provide your trading recommendations."
+            "\nRespond with JSON only — no markdown, no commentary outside the JSON."
+        )
+
+        return "\n".join(sections)
+
+    def _parse_response(self, raw_response: str) -> MarketAnalysis:
+        """Parse Claude's JSON response into a MarketAnalysis object."""
+        # Strip any markdown code fences if present
+        text = raw_response.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1]
+        if text.endswith("```"):
+            text = text.rsplit("```", 1)[0]
+        text = text.strip()
+
+        data = json.loads(text)
+        data["raw_analysis"] = raw_response
+        return MarketAnalysis(**data)

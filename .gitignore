@@ -1,0 +1,27 @@
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs (tracked selectively — see logs/README.md)
+logs/trades/*.json
+logs/decisions/*.json
+logs/portfolio/*.json
+logs/errors/*.log
+
+# OS
+.DS_Store
+Thumbs.db
