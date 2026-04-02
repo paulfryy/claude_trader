@@ -16,7 +16,7 @@ build/
 .idea/
 *.swp
 
-# Logs (tracked selectively — see logs/README.md)
+# Logs — JSON data logs are gitignored, but markdown summaries are tracked
 logs/trades/*.json
 logs/decisions/*.json
 logs/portfolio/*.json

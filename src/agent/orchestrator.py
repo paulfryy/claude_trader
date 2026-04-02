@@ -17,6 +17,7 @@ from src.data.indicators import add_all_indicators, summarize_indicators
 from src.data.market_data import MarketDataClient
 from src.data.news import NewsDataClient
 from src.execution.orders import OrderExecutor
+from src.logging_utils.daily_summary import write_daily_summary
 from src.logging_utils.decision_log import DecisionLog
 from src.logging_utils.trade_journal import TradeJournal
 from src.portfolio.portfolio import PortfolioTracker
@@ -150,6 +151,7 @@ def run_analysis_cycle(
         logger.info("Closing position: %s → %s", symbol, result["status"])
 
     # Step 7: Validate and execute new trade signals
+    rejected_signals = []
     for signal in analysis.trade_signals:
         if signal.action == TradeAction.HOLD:
             continue
@@ -159,6 +161,7 @@ def run_analysis_cycle(
 
         if not risk_result.approved:
             trade_journal.log_rejection(signal, risk_result.reason, portfolio_state)
+            rejected_signals.append({"symbol": signal.symbol, "reason": risk_result.reason})
             continue
 
         # Determine position size (use adjusted size if risk clamped it)
@@ -194,10 +197,18 @@ def run_analysis_cycle(
         execution_results=execution_results,
     )
 
+    # Step 9: Write human-readable daily summary
+    write_daily_summary(
+        analysis=analysis,
+        portfolio_state=portfolio_state,
+        execution_results=execution_results,
+        rejected_signals=rejected_signals,
+    )
+
     logger.info(
         "=== Cycle complete: %d trades executed, %d rejected ===",
         sum(1 for r in execution_results if r.get("status") == "submitted"),
-        sum(1 for r in execution_results if r.get("status") == "error"),
+        len(rejected_signals),
     )
 
 
