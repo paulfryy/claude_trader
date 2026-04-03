@@ -21,6 +21,7 @@ def write_daily_summary(
     portfolio_state: dict,
     execution_results: list[dict],
     rejected_signals: list[dict],
+    benchmark: dict | None = None,
 ) -> Path:
     """
     Write a human-readable markdown summary for this analysis cycle.
@@ -33,7 +34,7 @@ def write_daily_summary(
     timestamp = datetime.now().strftime("%H:%M:%S ET")
     is_new_file = not filepath.exists()
 
-    with open(filepath, "a") as f:
+    with open(filepath, "a", encoding="utf-8") as f:
         if is_new_file:
             f.write(f"# Trading Summary — {date_str}\n\n")
             f.write(f"**Starting Equity:** ${portfolio_state.get('equity', 0):,.2f}\n")
@@ -117,6 +118,14 @@ def write_daily_summary(
         f.write(f"- Cash: ${portfolio_state.get('cash', 0):,.2f}\n")
         f.write(f"- Exposure: {portfolio_state.get('exposure_pct', 0):.1%}\n")
         f.write(f"- Positions: {portfolio_state.get('num_positions', 0)}\n")
+        f.write(f"- Total Return: {portfolio_state.get('total_return_pct', 0):.2%}\n")
+
+        if benchmark:
+            f.write(f"\n### Benchmark (SPY)\n")
+            f.write(f"- SPY Price: ${benchmark.get('price', 0):,.2f}\n")
+            f.write(f"- SPY Return (from start): {benchmark.get('return_pct', 0):.2%}\n")
+            alpha = portfolio_state.get('total_return_pct', 0) - benchmark.get('return_pct', 0)
+            f.write(f"- Alpha: {alpha:+.2%}\n")
         f.write(f"- Unrealized P&L: ${portfolio_state.get('unrealized_pl', 0):,.2f}\n")
         f.write("\n---\n\n")
 

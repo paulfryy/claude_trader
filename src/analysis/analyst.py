@@ -4,11 +4,13 @@ Claude analysis engine — constructs prompts, calls Claude, and parses structur
 
 import json
 import logging
+from datetime import datetime
+from pathlib import Path
 
 import anthropic
 
 from src.analysis.signals import MarketAnalysis
-from src.config import Settings
+from src.config import LOGS_DIR, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +185,15 @@ Be decisive but disciplined. Every trade must have a clear rationale and exit pl
                 for article in articles[:5]:
                     sections.append(f"- {article['headline']}")
 
+        # Previous context from today's earlier cycles
+        prior_context = self._load_prior_context()
+        if prior_context:
+            sections.append("\n## PREVIOUS ANALYSIS TODAY")
+            sections.append("You made the following assessments earlier today. "
+                          "Stay consistent unless new data warrants a change. "
+                          "Do NOT re-buy positions you already opened today.")
+            sections.append(prior_context)
+
         sections.append(
             "\n## INSTRUCTIONS"
             "\nAnalyze the above data and provide your trading recommendations."
@@ -190,6 +201,31 @@ Be decisive but disciplined. Every trade must have a clear rationale and exit pl
         )
 
         return "\n".join(sections)
+
+    def _load_prior_context(self) -> str | None:
+        """
+        Load today's earlier analysis summaries so Claude has continuity.
+        Returns the markdown content of today's summary, or None if no prior cycles.
+        """
+        summary_dir = LOGS_DIR / "summaries"
+        today_file = summary_dir / f"{datetime.now().strftime('%Y-%m-%d')}.md"
+
+        if not today_file.exists():
+            return None
+
+        try:
+            content = today_file.read_text(encoding="utf-8", errors="replace")
+            # Trim if too long — keep under ~2000 chars to save tokens
+            if len(content) > 3000:
+                # Keep the header and the most recent cycle
+                sections = content.split("---")
+                # Header + last 2 sections (most recent cycle + trailing)
+                if len(sections) >= 3:
+                    content = sections[0] + "---" + "---".join(sections[-3:])
+            return content.strip()
+        except Exception as e:
+            logger.warning("Failed to load prior context: %s", e)
+            return None
 
     def _parse_response(self, raw_response: str) -> MarketAnalysis:
         """Parse Claude's JSON response into a MarketAnalysis object."""

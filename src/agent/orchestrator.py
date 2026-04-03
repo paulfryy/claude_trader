@@ -21,6 +21,7 @@ from src.data.market_data import MarketDataClient
 from src.data.news import NewsDataClient
 from src.data.screener import Screener
 from src.execution.orders import OrderExecutor
+from src.logging_utils.benchmark import get_benchmark_data
 from src.logging_utils.daily_summary import write_daily_summary
 from src.logging_utils.decision_log import DecisionLog
 from src.logging_utils.trade_journal import TradeJournal
@@ -469,12 +470,21 @@ def run_analysis_cycle(
         execution_results=execution_results,
     )
 
-    # Step 9: Write human-readable daily summary
+    # Step 9: Get benchmark data (SPY)
+    benchmark = None
+    spy_data = watchlist_data.get("SPY", {})
+    spy_quote = spy_data.get("quote", {})
+    spy_price = spy_quote.get("ask", 0) or spy_quote.get("bid", 0)
+    if spy_price > 0:
+        benchmark = get_benchmark_data(spy_price)
+
+    # Step 10: Write human-readable daily summary
     write_daily_summary(
         analysis=analysis,
         portfolio_state=portfolio_state,
         execution_results=execution_results,
         rejected_signals=rejected_signals,
+        benchmark=benchmark,
     )
 
     executed = sum(1 for r in execution_results if r.get("status") in ("submitted", "dry_run"))

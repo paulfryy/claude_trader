@@ -30,6 +30,7 @@ VOLUME_SPIKE_MULTIPLIER = 2.0
 RSI_OVERSOLD = 30
 RSI_OVERBOUGHT = 70
 MAX_CANDIDATES = 30  # Max symbols to send to Claude (excluding anchors)
+MIN_CANDIDATES = 10  # Minimum — backfill with top liquid symbols if screener finds fewer
 
 
 class Screener:
@@ -51,7 +52,7 @@ class Screener:
 
         # Tier 1: Quick filter on price and volume
         logger.info("Tier 1: Scanning %d symbols (snapshots)...", len(universe))
-        tier1_passed = self._tier1_filter(universe)
+        tier1_passed, tier1_by_volume = self._tier1_filter(universe)
         logger.info("Tier 1: %d symbols passed price/volume filters", len(tier1_passed))
 
         # Tier 2: Fetch bars + indicators, apply signal filters
@@ -63,6 +64,17 @@ class Screener:
         scored.sort(key=lambda x: x[1], reverse=True)
         candidates = [sym for sym, score in scored[:MAX_CANDIDATES]]
 
+        # Backfill: if too few candidates, add the most liquid Tier 1 symbols
+        if len(candidates) < MIN_CANDIDATES:
+            existing = set(candidates) | set(anchors)
+            backfill = [sym for sym, vol in tier1_by_volume if sym not in existing]
+            need = MIN_CANDIDATES - len(candidates)
+            candidates.extend(backfill[:need])
+            logger.info(
+                "Backfilled %d symbols from Tier 1 (by volume) to meet minimum of %d",
+                min(need, len(backfill)), MIN_CANDIDATES,
+            )
+
         # Always include anchors
         final = list(dict.fromkeys(anchors + candidates))
 
@@ -72,12 +84,17 @@ class Screener:
         )
         return final
 
-    def _tier1_filter(self, symbols: list[str]) -> list[str]:
+    def _tier1_filter(self, symbols: list[str]) -> tuple[list[str], list[tuple[str, float]]]:
         """
         Tier 1: Fetch snapshots in batches and filter on price + volume.
         Fast — takes ~1 second for the full universe.
+
+        Returns:
+            (passed_symbols, by_volume) where by_volume is sorted descending
+            for backfilling if Tier 2 gives too few results.
         """
         passed = []
+        by_volume = []
         chunk_size = 100
 
         for i in range(0, len(symbols), chunk_size):
@@ -102,8 +119,11 @@ class Screener:
                     continue
 
                 passed.append(sym)
+                by_volume.append((sym, volume))
 
-        return passed
+        # Sort by volume descending for backfill priority
+        by_volume.sort(key=lambda x: x[1], reverse=True)
+        return passed, by_volume
 
     def _tier2_filter(self, symbols: list[str]) -> list[tuple[str, float]]:
         """
