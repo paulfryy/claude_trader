@@ -47,8 +47,9 @@ def write_daily_summary(
         f.write(f"## Analysis Cycle — {timestamp}\n\n")
 
         # Market assessment
+        regime_conf = analysis.regime_confidence.value if hasattr(analysis.regime_confidence, 'value') else analysis.regime_confidence
         f.write(f"**Market Regime:** {analysis.market_regime} ")
-        f.write(f"(confidence: {analysis.regime_confidence})\n\n")
+        f.write(f"(confidence: {regime_conf})\n\n")
 
         f.write("### Key Observations\n")
         for obs in analysis.key_observations:
@@ -89,12 +90,17 @@ def write_daily_summary(
                         status = f"REJECTED — {r.get('reason', 'unknown')}"
                         break
 
+                conviction = sig.conviction.value if hasattr(sig.conviction, 'value') else sig.conviction
+                target = f"${sig.target_price:.2f}" if sig.target_price else "N/A"
+                stop = f"${sig.stop_loss_price:.2f}" if sig.stop_loss_price else "N/A (long option — max loss = premium)"
+                rr = f"{sig.risk_reward_ratio:.1f}" if sig.risk_reward_ratio else "N/A"
+
                 f.write(f"\n**{sig.action.value.upper()} {sig.symbol}** [{status}]\n")
-                f.write(f"- Conviction: {sig.conviction}\n")
+                f.write(f"- Conviction: {conviction}\n")
                 f.write(f"- Size: {sig.position_size_pct:.0%} of portfolio\n")
-                f.write(f"- Target: ${sig.target_price}\n")
-                f.write(f"- Stop Loss: ${sig.stop_loss_price}\n")
-                f.write(f"- R/R Ratio: {sig.risk_reward_ratio}\n")
+                f.write(f"- Target: {target}\n")
+                f.write(f"- Stop Loss: {stop}\n")
+                f.write(f"- R/R Ratio: {rr}\n")
                 f.write(f"- Time Horizon: {sig.time_horizon}\n")
                 f.write(f"- Rationale: {sig.rationale}\n")
             f.write("\n")

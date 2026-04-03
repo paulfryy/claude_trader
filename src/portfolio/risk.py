@@ -168,11 +168,17 @@ class RiskManager:
     def _check_has_stop_loss(
         self, signal: TradeSignal, state: dict
     ) -> RiskCheckResult:
-        """Ensure buy signals have a stop-loss defined."""
-        is_buy = signal.action in (
-            TradeAction.BUY, TradeAction.BUY_CALL, TradeAction.BUY_PUT,
+        """
+        Ensure buy signals have a stop-loss defined.
+        Exception: long options (buy_call, buy_put) don't require a stop-loss
+        because the max loss is already defined (the premium paid).
+        """
+        is_long_option = signal.action in (
+            TradeAction.BUY_CALL, TradeAction.BUY_PUT,
         )
-        if is_buy and signal.stop_loss_price is None:
+        is_equity_buy = signal.action == TradeAction.BUY
+
+        if is_equity_buy and signal.stop_loss_price is None:
             return RiskCheckResult(
                 approved=False,
                 signal=signal,

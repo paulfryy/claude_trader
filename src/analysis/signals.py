@@ -35,8 +35,8 @@ class TradeSignal(BaseModel):
     position_size_pct: float = Field(
         description="Suggested position size as % of portfolio", ge=0, le=1
     )
-    rationale: str = Field(description="Claude's reasoning for this trade")
-    time_horizon: str = Field(description="Expected holding period, e.g. '3-5 days', '1-2 weeks'")
+    rationale: str = Field(default="", description="Claude's reasoning for this trade")
+    time_horizon: str = Field(default="unspecified", description="Expected holding period, e.g. '3-5 days', '1-2 weeks'")
     risk_reward_ratio: float | None = Field(
         default=None, description="Estimated risk/reward ratio"
     )
