@@ -26,7 +26,7 @@ from src.logging_utils.decision_log import DecisionLog
 from src.logging_utils.trade_journal import TradeJournal
 from src.portfolio.portfolio import PortfolioTracker
 from src.portfolio.risk import RiskManager
-from src.portfolio.sizing import calculate_shares
+from src.portfolio.sizing import calculate_notional, calculate_options_contracts
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -367,7 +367,7 @@ def run_analysis_cycle(
         # Determine position size (use adjusted size if risk clamped it)
         size_pct = risk_result.adjusted_size_pct or signal.position_size_pct
 
-        # Get current price for sizing
+        # Get current price for sizing/logging
         quote = watchlist_data.get(signal.symbol, {}).get("quote", {})
         current_price = quote.get("ask", 0) or quote.get("bid", 0)
 
@@ -375,30 +375,84 @@ def run_analysis_cycle(
             logger.warning("No price available for %s, skipping", signal.symbol)
             continue
 
-        # Calculate quantity
-        qty = calculate_shares(signal, portfolio_state["equity"], current_price, size_pct)
+        # Determine if this is an options or equity trade
+        is_options = signal.action in (
+            TradeAction.BUY_CALL, TradeAction.BUY_PUT,
+            TradeAction.SELL_CALL, TradeAction.SELL_PUT,
+        )
 
-        if dry_run:
-            logger.info(
-                "[DRY RUN] Would execute: %s %d shares of %s @ ~$%.2f",
-                signal.action.value, qty, signal.symbol, current_price,
-            )
-            result = {
-                "status": "dry_run",
-                "symbol": signal.symbol,
-                "side": signal.action.value,
-                "qty": qty,
-                "price": current_price,
-            }
-            execution_results.append(result)
+        if is_options:
+            # Options: calculate contracts (can't do fractional)
+            # Use the position allocation as the premium budget
+            premium_budget = portfolio_state["equity"] * size_pct
+            # Estimate 1 contract cost (we don't have real options chain data yet)
+            # For now, skip if no strike/expiry — Claude needs to provide these
+            if not signal.strike_price or not signal.expiration_date:
+                logger.warning(
+                    "Options signal for %s missing strike/expiry, skipping",
+                    signal.symbol,
+                )
+                continue
+
+            if dry_run:
+                logger.info(
+                    "[DRY RUN] Would execute: %s %s option on %s, strike=$%.2f, exp=%s, budget=$%.2f",
+                    signal.action.value, signal.option_type or "?",
+                    signal.symbol, signal.strike_price, signal.expiration_date, premium_budget,
+                )
+                result = {
+                    "status": "dry_run",
+                    "symbol": signal.symbol,
+                    "side": signal.action.value,
+                    "notional": premium_budget,
+                    "strike": signal.strike_price,
+                    "expiration": signal.expiration_date,
+                }
+                execution_results.append(result)
+            else:
+                try:
+                    # Estimate 1 contract at ~$2-5 premium = $200-500 per contract
+                    # With $80-150 budget on a $1000 account, usually 0-1 contracts
+                    contracts = calculate_options_contracts(
+                        signal, portfolio_state["equity"],
+                        premium_per_contract=premium_budget,  # 1 contract = full budget
+                        position_size_pct=size_pct,
+                    )
+                    if contracts <= 0:
+                        contracts = 1  # Try at least 1 contract
+
+                    result = executor.execute_options_signal(signal, contracts)
+                    execution_results.append(result)
+                except Exception as e:
+                    logger.error("Options execution failed for %s: %s", signal.symbol, e)
+                    result = {"status": "error", "symbol": signal.symbol, "error": str(e)}
+                    execution_results.append(result)
         else:
-            try:
-                result = executor.execute_signal(signal, qty, current_price)
+            # Equity: use notional (dollar-based) orders for fractional shares
+            notional = calculate_notional(signal, portfolio_state["equity"], current_price, size_pct)
+
+            if dry_run:
+                approx_shares = notional / current_price if current_price > 0 else 0
+                logger.info(
+                    "[DRY RUN] Would execute: %s $%.2f of %s (~%.2f shares @ $%.2f)",
+                    signal.action.value, notional, signal.symbol, approx_shares, current_price,
+                )
+                result = {
+                    "status": "dry_run",
+                    "symbol": signal.symbol,
+                    "side": signal.action.value,
+                    "notional": notional,
+                    "price": current_price,
+                }
                 execution_results.append(result)
-            except Exception as e:
-                logger.error("Order execution failed for %s: %s", signal.symbol, e)
-                result = {"status": "error", "symbol": signal.symbol, "error": str(e)}
-                execution_results.append(result)
+            else:
+                try:
+                    result = executor.execute_equity_signal(signal, notional)
+                    execution_results.append(result)
+                except Exception as e:
+                    logger.error("Order execution failed for %s: %s", signal.symbol, e)
+                    result = {"status": "error", "symbol": signal.symbol, "error": str(e)}
+                    execution_results.append(result)
 
         # Log the trade
         trade_journal.log_trade(

@@ -1,5 +1,9 @@
 """
 Portfolio state tracker — tracks positions, cash, P&L, and exposure.
+
+Uses a "virtual equity" model for paper trading: the agent sizes positions
+based on starting_capital ($1000) rather than the paper account's $100k.
+This ensures the agent behaves identically to how it will with real money.
 """
 
 import json
@@ -22,17 +26,23 @@ class PortfolioTracker:
 
     def build_state(self, account_info: dict, positions: list[dict]) -> dict:
         """
-        Build a complete portfolio state snapshot from live data.
+        Build a complete portfolio state snapshot.
 
-        Returns a dict with portfolio metrics for analysis and logging.
+        Uses virtual equity based on starting_capital + unrealized P&L from
+        our positions. This way the agent sizes trades based on $1000, not
+        the paper account's $100k.
         """
-        equity = account_info["equity"]
-        cash = account_info["cash"]
-        portfolio_value = account_info["portfolio_value"]
-
-        # Calculate exposure
+        # Calculate position values
         total_position_value = sum(abs(p["market_value"]) for p in positions)
-        exposure_pct = total_position_value / equity if equity > 0 else 0
+        total_unrealized_pl = sum(p["unrealized_pl"] for p in positions)
+
+        # Virtual equity = starting capital + P&L from our trades
+        # This is what the agent uses for all sizing and risk decisions
+        virtual_equity = self._starting_capital + total_unrealized_pl
+        virtual_cash = virtual_equity - total_position_value
+
+        # Exposure calculated against virtual equity
+        exposure_pct = total_position_value / virtual_equity if virtual_equity > 0 else 0
 
         # Options vs equity exposure
         options_value = sum(
@@ -42,37 +52,43 @@ class PortfolioTracker:
         equity_value = total_position_value - options_value
 
         # P&L
-        total_unrealized_pl = sum(p["unrealized_pl"] for p in positions)
-        total_return_pct = (equity - self._starting_capital) / self._starting_capital
+        total_return_pct = (virtual_equity - self._starting_capital) / self._starting_capital
 
         # Update high watermark
-        if equity > self._high_watermark:
-            self._high_watermark = equity
+        if virtual_equity > self._high_watermark:
+            self._high_watermark = virtual_equity
 
         # Drawdown from peak
         drawdown_pct = (
-            (self._high_watermark - equity) / self._high_watermark
+            (self._high_watermark - virtual_equity) / self._high_watermark
             if self._high_watermark > 0
             else 0
         )
 
         state = {
             "timestamp": datetime.now().isoformat(),
-            "equity": equity,
-            "cash": cash,
-            "portfolio_value": portfolio_value,
+            # Virtual equity — what the agent uses for decisions
+            "equity": virtual_equity,
+            "cash": virtual_cash,
             "starting_capital": self._starting_capital,
             "total_return_pct": total_return_pct,
+            # Positions and exposure
             "total_position_value": total_position_value,
             "exposure_pct": exposure_pct,
             "equity_exposure": equity_value,
             "options_exposure": options_value,
             "unrealized_pl": total_unrealized_pl,
+            # Risk metrics
             "high_watermark": self._high_watermark,
             "drawdown_pct": drawdown_pct,
             "day_trade_count": account_info.get("day_trade_count", 0),
+            # Positions
             "num_positions": len(positions),
             "positions": positions,
+            # Raw Alpaca account (for reference/debugging)
+            "alpaca_equity": account_info["equity"],
+            "alpaca_cash": account_info["cash"],
+            "alpaca_buying_power": account_info["buying_power"],
         }
 
         return state
