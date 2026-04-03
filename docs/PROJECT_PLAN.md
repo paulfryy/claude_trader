@@ -1,6 +1,6 @@
 # Claude Trading Agent — Project Plan
 
-**Last Updated:** 2026-04-03
+**Last Updated:** 2026-04-03 (evening)
 
 ## Overview
 Fully autonomous Claude-powered trading agent managing a $1000 portfolio via Alpaca.
@@ -29,10 +29,18 @@ Target: beat the S&P 500 benchmark through swing trading equities/ETFs and short
 - [x] Market data client (Alpaca market data API)
   - [x] Historical OHLCV bars (daily, up to 1yr lookback)
   - [x] Latest quotes (bid/ask)
+  - [x] Batch snapshots (price + volume for 500+ symbols in <1s)
   - [x] Account info and positions
   - [ ] Options chain data (deferred — needs options approval)
 - [x] Technical indicators module (RSI, MACD, SMA/EMA, Bollinger Bands, ATR, OBV, VWAP, Stoch RSI)
 - [x] News/sentiment data pipeline (Alpaca news API — market-wide and per-symbol)
+- [x] Trading universe (S&P 500 + 30 major ETFs = 524 symbols)
+- [x] Dynamic screener — two-tier filtering:
+  - Tier 1: Batch snapshots → price ($5-$500) + volume (>500k) filter → ~76 candidates
+  - Tier 2: Full bars + indicators → signal scoring (RSI, SMA cross, MACD, volume spike, BB breakout) → top ~30
+  - Anchor symbols (SPY, QQQ, IWM) always included
+  - Current positions always included
+  - Falls back to static 16-symbol list if screener fails
 - [ ] Fundamental data (earnings, financials) — deferred to Phase 10
 - [ ] Data caching to minimize API calls — deferred, not needed yet at 3 cycles/day
 
@@ -132,7 +140,7 @@ Target: beat the S&P 500 benchmark through swing trading equities/ETFs and short
 
 ## Current Status (2026-04-03)
 
-**Where we are:** Phases 1-7 are built and hardened. Error handling, startup validation, dry-run mode, and graceful shutdown are all in place. Two successful dry-run tests have been completed — Claude analyzed the full 16-symbol watchlist both times and generated actionable signals with rationales.
+**Where we are:** Phases 1-7 are built and hardened. Dynamic screener scans the full S&P 500 + 30 ETFs (524 symbols) and filters to actionable candidates. Error handling, startup validation, dry-run mode, and graceful shutdown are all in place. Multiple dry-run tests completed successfully.
 
 **What's next:** Run `python -m src.agent.scheduler` on Monday 2026-04-06 before 9:45 AM ET. This will be the first time the agent actually executes orders on the paper account.
 
@@ -140,6 +148,7 @@ Target: beat the S&P 500 benchmark through swing trading equities/ETFs and short
 - We're using $100k paper money but the real account will be $1000. Position sizing logic works on percentages so it should scale, but we should watch for any issues with minimum order sizes or fractional shares.
 - Claude's conviction levels (Conviction.MEDIUM vs "medium") are showing in summaries — cosmetic, fix later.
 - Need to monitor API credit usage — each cycle costs ~$0.02-0.05.
+- Screener only found 1 candidate after hours (expected — most signals need live market data). Monday will show realistic candidate counts.
 
 ---
 

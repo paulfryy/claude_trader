@@ -19,6 +19,7 @@ from src.config import ERROR_LOGS_DIR, load_settings
 from src.data.indicators import add_all_indicators, summarize_indicators
 from src.data.market_data import MarketDataClient
 from src.data.news import NewsDataClient
+from src.data.screener import Screener
 from src.execution.orders import OrderExecutor
 from src.logging_utils.daily_summary import write_daily_summary
 from src.logging_utils.decision_log import DecisionLog
@@ -30,12 +31,12 @@ from src.portfolio.sizing import calculate_shares
 logger = logging.getLogger(__name__)
 console = Console()
 
-# Default watchlist — will be made configurable later
-DEFAULT_WATCHLIST = [
-    "SPY", "QQQ", "IWM",          # Major indices
-    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",  # Mega caps
-    "AMD", "NFLX", "CRM",         # Growth
-    "XLF", "XLE", "XLK",          # Sector ETFs
+# Fallback watchlist if screener fails
+FALLBACK_WATCHLIST = [
+    "SPY", "QQQ", "IWM",
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
+    "AMD", "NFLX", "CRM",
+    "XLF", "XLE", "XLK",
 ]
 
 
@@ -162,8 +163,6 @@ def run_analysis_cycle(
     if settings is None:
         settings = load_settings()
 
-    watchlist = watchlist or DEFAULT_WATCHLIST
-
     # Determine cycle mode
     if mode is None:
         mode = CycleMode.from_time(datetime.now().hour)
@@ -176,6 +175,7 @@ def run_analysis_cycle(
         portfolio_tracker = PortfolioTracker(settings)
         risk_manager = RiskManager(settings)
         executor = OrderExecutor(settings)
+        screener = Screener(settings)
         trade_journal = TradeJournal()
         decision_log = DecisionLog()
     except Exception as e:
@@ -193,6 +193,18 @@ def run_analysis_cycle(
             logger.error("Failed to check market status: %s", e)
             _log_error(e, "Market status check")
             return False
+
+    # Step 1b: Run screener to build watchlist (or use provided/fallback)
+    if watchlist is None:
+        try:
+            watchlist = screener.screen()
+            # Also include current positions so Claude always re-evaluates them
+            position_symbols = [p["symbol"] for p in market_data.get_positions()]
+            watchlist = list(dict.fromkeys(watchlist + position_symbols))
+        except Exception as e:
+            logger.warning("Screener failed, using fallback watchlist: %s", e)
+            _log_error(e, "Screener")
+            watchlist = FALLBACK_WATCHLIST
 
     run_label = "DRY-RUN " if dry_run else ""
     logger.info(

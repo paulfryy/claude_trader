@@ -1,0 +1,218 @@
+"""
+Stock screener — filters the full universe down to actionable candidates for Claude.
+
+Two-tier approach:
+  Tier 1 (fast): Batch snapshots for all ~520 symbols. Filter on price + volume.
+  Tier 2 (selective): Fetch full bars + indicators for ~70-80 that pass Tier 1.
+         Apply signal filters (RSI, SMA cross, volume spike, MACD, BB breakout).
+         Send top ~20-30 candidates to Claude for analysis.
+"""
+
+import logging
+from datetime import datetime, timedelta
+
+import pandas as pd
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest, StockSnapshotRequest
+from alpaca.data.timeframe import TimeFrame
+
+from src.config import Settings
+from src.data.indicators import add_all_indicators
+from src.data.universe import get_anchor_symbols, get_universe
+
+logger = logging.getLogger(__name__)
+
+# Screening criteria
+MIN_PRICE = 5.0
+MAX_PRICE = 500.0
+MIN_AVG_VOLUME = 500_000
+VOLUME_SPIKE_MULTIPLIER = 2.0
+RSI_OVERSOLD = 30
+RSI_OVERBOUGHT = 70
+MAX_CANDIDATES = 30  # Max symbols to send to Claude (excluding anchors)
+
+
+class Screener:
+    """Screens the full universe down to actionable candidates."""
+
+    def __init__(self, settings: Settings):
+        self._client = StockHistoricalDataClient(
+            api_key=settings.alpaca.api_key,
+            secret_key=settings.alpaca.secret_key,
+        )
+
+    def screen(self) -> list[str]:
+        """
+        Run the full screening pipeline.
+        Returns a list of symbols for Claude to analyze (anchors + screened candidates).
+        """
+        universe = get_universe()
+        anchors = get_anchor_symbols()
+
+        # Tier 1: Quick filter on price and volume
+        logger.info("Tier 1: Scanning %d symbols (snapshots)...", len(universe))
+        tier1_passed = self._tier1_filter(universe)
+        logger.info("Tier 1: %d symbols passed price/volume filters", len(tier1_passed))
+
+        # Tier 2: Fetch bars + indicators, apply signal filters
+        logger.info("Tier 2: Analyzing %d symbols (bars + indicators)...", len(tier1_passed))
+        scored = self._tier2_filter(tier1_passed)
+        logger.info("Tier 2: %d symbols have actionable signals", len(scored))
+
+        # Sort by score descending, take top N
+        scored.sort(key=lambda x: x[1], reverse=True)
+        candidates = [sym for sym, score in scored[:MAX_CANDIDATES]]
+
+        # Always include anchors
+        final = list(dict.fromkeys(anchors + candidates))
+
+        logger.info(
+            "Screening complete: %d symbols selected (%d anchors + %d candidates)",
+            len(final), len(anchors), len(candidates),
+        )
+        return final
+
+    def _tier1_filter(self, symbols: list[str]) -> list[str]:
+        """
+        Tier 1: Fetch snapshots in batches and filter on price + volume.
+        Fast — takes ~1 second for the full universe.
+        """
+        passed = []
+        chunk_size = 100
+
+        for i in range(0, len(symbols), chunk_size):
+            chunk = symbols[i:i + chunk_size]
+            try:
+                request = StockSnapshotRequest(symbol_or_symbols=chunk)
+                snapshots = self._client.get_stock_snapshot(request)
+            except Exception as e:
+                logger.warning("Snapshot fetch failed for chunk %d-%d: %s", i, i + len(chunk), e)
+                continue
+
+            for sym, snap in snapshots.items():
+                if not snap.daily_bar:
+                    continue
+
+                price = snap.daily_bar.close
+                volume = snap.daily_bar.volume
+
+                if price < MIN_PRICE or price > MAX_PRICE:
+                    continue
+                if volume < MIN_AVG_VOLUME:
+                    continue
+
+                passed.append(sym)
+
+        return passed
+
+    def _tier2_filter(self, symbols: list[str]) -> list[tuple[str, float]]:
+        """
+        Tier 2: Fetch bars, compute indicators, and score symbols on signal strength.
+        Returns list of (symbol, score) for symbols with actionable signals.
+        """
+        scored = []
+        chunk_size = 50
+        start_date = datetime.now() - timedelta(days=120)
+
+        for i in range(0, len(symbols), chunk_size):
+            chunk = symbols[i:i + chunk_size]
+            try:
+                request = StockBarsRequest(
+                    symbol_or_symbols=chunk,
+                    timeframe=TimeFrame.Day,
+                    start=start_date,
+                    limit=60,
+                )
+                bars = self._client.get_stock_bars(request)
+                df = bars.df
+            except Exception as e:
+                logger.warning("Bar fetch failed for chunk %d-%d: %s", i, i + len(chunk), e)
+                continue
+
+            if df.empty:
+                continue
+
+            # Process each symbol individually
+            for sym in chunk:
+                try:
+                    if isinstance(df.index, pd.MultiIndex) and sym in df.index.get_level_values("symbol"):
+                        sym_df = df.loc[sym].copy()
+                    else:
+                        continue
+
+                    if len(sym_df) < 20:
+                        continue
+
+                    sym_df = add_all_indicators(sym_df)
+                    score = self._score_signals(sym_df)
+
+                    if score > 0:
+                        scored.append((sym, score))
+                except Exception as e:
+                    logger.debug("Scoring failed for %s: %s", sym, e)
+
+        return scored
+
+    def _score_signals(self, df: pd.DataFrame) -> float:
+        """
+        Score a symbol based on technical signals.
+        Higher score = more interesting for trading.
+        Returns 0 if no actionable signals.
+        """
+        if df.empty or len(df) < 2:
+            return 0.0
+
+        latest = df.iloc[-1]
+        prev = df.iloc[-2]
+        score = 0.0
+
+        # RSI extremes (oversold or overbought)
+        rsi = latest.get("rsi_14")
+        if rsi is not None and not pd.isna(rsi):
+            if rsi < RSI_OVERSOLD:
+                score += 3.0  # Oversold — potential bounce
+            elif rsi > RSI_OVERBOUGHT:
+                score += 2.0  # Overbought — potential reversal or momentum
+
+        # SMA crossover (price crosses 20-day SMA)
+        sma20 = latest.get("sma_20")
+        prev_sma20 = prev.get("sma_20")
+        if sma20 is not None and prev_sma20 is not None:
+            if not pd.isna(sma20) and not pd.isna(prev_sma20):
+                # Bullish cross: price was below, now above
+                if prev["close"] < prev_sma20 and latest["close"] > sma20:
+                    score += 2.5
+                # Bearish cross: price was above, now below
+                elif prev["close"] > prev_sma20 and latest["close"] < sma20:
+                    score += 2.0
+
+        # MACD crossover
+        macd = latest.get("macd")
+        macd_signal = latest.get("macd_signal")
+        prev_macd = prev.get("macd")
+        prev_macd_signal = prev.get("macd_signal")
+        if all(v is not None and not pd.isna(v) for v in [macd, macd_signal, prev_macd, prev_macd_signal]):
+            # Bullish MACD cross
+            if prev_macd <= prev_macd_signal and macd > macd_signal:
+                score += 2.5
+            # Bearish MACD cross
+            elif prev_macd >= prev_macd_signal and macd < macd_signal:
+                score += 2.0
+
+        # Volume spike (today's volume > 2x average)
+        volume = latest.get("volume", 0)
+        avg_volume = df["volume"].rolling(20).mean().iloc[-1] if len(df) >= 20 else df["volume"].mean()
+        if not pd.isna(avg_volume) and avg_volume > 0:
+            if volume > avg_volume * VOLUME_SPIKE_MULTIPLIER:
+                score += 2.0
+
+        # Bollinger Band breakout
+        bb_upper = latest.get("bb_upper")
+        bb_lower = latest.get("bb_lower")
+        if bb_upper is not None and bb_lower is not None:
+            if not pd.isna(bb_upper) and latest["close"] > bb_upper:
+                score += 1.5  # Breaking above upper band
+            elif not pd.isna(bb_lower) and latest["close"] < bb_lower:
+                score += 2.0  # Breaking below lower band (potential bounce)
+
+        return score

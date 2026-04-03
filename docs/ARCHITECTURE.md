@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**Last Updated:** 2026-04-03
+**Last Updated:** 2026-04-03 (evening)
 
 ## Directory Structure
 
@@ -22,7 +22,9 @@ claude_agent/
 │   ├── data/                      # Market data layer
 │   │   ├── market_data.py         # Alpaca: bars, quotes, account, positions
 │   │   ├── indicators.py          # Technical indicators (RSI, MACD, BB, etc.)
-│   │   └── news.py                # Alpaca news API client
+│   │   ├── news.py                # Alpaca news API client
+│   │   ├── universe.py            # S&P 500 + ETF symbol lists (524 total)
+│   │   └── screener.py            # Two-tier dynamic stock screener
 │   ├── portfolio/                 # Portfolio & risk management
 │   │   ├── portfolio.py           # Portfolio state tracking + snapshots
 │   │   ├── risk.py                # Risk rules engine (6 guardrails)
@@ -51,6 +53,17 @@ claude_agent/
 ## Data Flow
 
 ```
+  S&P 500 + ETFs (524 symbols)
+           │
+     ┌─────┴──────┐
+     │  Screener   │
+     │  Tier 1:    │  Batch snapshots (<1s)
+     │  price/vol  │  → ~76 pass
+     │  Tier 2:    │  Bars + indicators
+     │  signals    │  → top ~30
+     └─────┬──────┘
+           │
+           ▼ (screened watchlist + anchors + positions)
                               ┌─────────────────┐
                               │  Cycle Mode      │
                               │  morning/midday/ │
