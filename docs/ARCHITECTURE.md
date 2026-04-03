@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**Last Updated:** 2026-04-02
+**Last Updated:** 2026-04-03
 
 ## Directory Structure
 
@@ -151,12 +151,24 @@ All settings are loaded from `.env` via pydantic-settings:
 | `STOP_LOSS_DEFAULT_PCT` | `0.08` | Default stop-loss distance |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
 
+## Error Handling
+
+The agent is designed to **never crash from a single failure**:
+
+- **Orchestrator**: Each step (data fetch, analysis, execution) is wrapped in try/except. If a step fails, the error is logged to `logs/errors/` and the cycle returns `False`. Non-critical failures (news fetch) log a warning and continue.
+- **Scheduler**: Wraps each cycle call in `_safe_run_cycle()`. If a cycle crashes with an unhandled exception, it's caught, logged, and the scheduler continues to the next scheduled run.
+- **Startup validation**: On boot, the scheduler verifies Alpaca and Anthropic connectivity. If either fails, it exits immediately with a clear error rather than waiting until the first scheduled cycle to discover the problem.
+- **Graceful shutdown**: Ctrl+C triggers a clean shutdown with logging.
+
 ## Running
 
 ```bash
 # Single cycle (uses current time to determine mode)
 python -m src.agent.orchestrator
 
-# Scheduled (3x daily Mon-Fri)
+# Dry-run (full pipeline, no order submission — works outside market hours)
+python -m src.agent.orchestrator --dry-run
+
+# Scheduled (3x daily Mon-Fri, validates connections on startup)
 python -m src.agent.scheduler
 ```

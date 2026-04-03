@@ -1,6 +1,6 @@
 # Claude Trading Agent — Project Plan
 
-**Last Updated:** 2026-04-02
+**Last Updated:** 2026-04-03
 
 ## Overview
 Fully autonomous Claude-powered trading agent managing a $1000 portfolio via Alpaca.
@@ -82,7 +82,12 @@ Target: beat the S&P 500 benchmark through swing trading equities/ETFs and short
   - Midday (12:30 PM ET): Defensive — manage positions, selective entries
   - Closing (3:45 PM ET): Review only — exits + analysis, NO new entries
 - [x] Scheduler (3x daily Mon-Fri)
-- [ ] Error handling and graceful degradation — basic, needs hardening
+- [x] Error handling — each cycle step wrapped in try/except, errors logged to `logs/errors/`
+- [x] Scheduler survives cycle crashes — logs error and continues to next cycle
+- [x] Startup validation — verifies Alpaca + Anthropic connectivity before scheduling
+- [x] Dry-run mode (`--dry-run`) — full pipeline without order submission
+- [x] Graceful shutdown (Ctrl+C handler)
+- [x] Windows Unicode encoding fix for Rich console output
 
 ### Phase 7: Logging & Analytics — MOSTLY COMPLETE
 - [x] Trade journal (every trade with signal, execution result, portfolio state)
@@ -97,7 +102,8 @@ Target: beat the S&P 500 benchmark through swing trading equities/ETFs and short
 ### Phase 8: Paper Trading & Validation — IN PROGRESS
 - [x] Alpaca paper account connected ($100k paper money)
 - [x] Full pipeline tested end-to-end (data → analysis → risk → logging)
-- [ ] **Run scheduled agent during market hours** ← NEXT STEP
+- [x] Dry-run tested successfully (2026-04-03) — Claude analyzed 16 symbols, generated 3 signals, all validated
+- [ ] **Run scheduled agent during market hours (Monday 2026-04-06)** ← NEXT STEP
 - [ ] Run for 2+ weeks collecting data
 - [ ] Daily performance review
 - [ ] Tune risk parameters and watchlist based on results
@@ -124,13 +130,16 @@ Target: beat the S&P 500 benchmark through swing trading equities/ETFs and short
 
 ---
 
-## Current Status (2026-04-02)
+## Current Status (2026-04-03)
 
-**Where we are:** Phases 1-7 are built. The full pipeline has been tested end-to-end after market hours — data fetching, indicator calculation, news, Claude analysis, risk validation, and logging all work. Claude generated 3 trade signals (QQQ, NVDA, MSFT) that all passed risk checks.
+**Where we are:** Phases 1-7 are built and hardened. Error handling, startup validation, dry-run mode, and graceful shutdown are all in place. Two successful dry-run tests have been completed — Claude analyzed the full 16-symbol watchlist both times and generated actionable signals with rationales.
 
-**What's next:** Run the scheduler during market hours tomorrow (2026-04-03) for the first live paper trading test. This will be the first time the agent actually executes orders.
+**What's next:** Run `python -m src.agent.scheduler` on Monday 2026-04-06 before 9:45 AM ET. This will be the first time the agent actually executes orders on the paper account.
 
-**Key concern:** We're using $100k paper money but the real account will be $1000. Position sizing logic works on percentages so it should scale, but we should watch for any issues with minimum order sizes or fractional shares.
+**Key concerns:**
+- We're using $100k paper money but the real account will be $1000. Position sizing logic works on percentages so it should scale, but we should watch for any issues with minimum order sizes or fractional shares.
+- Claude's conviction levels (Conviction.MEDIUM vs "medium") are showing in summaries — cosmetic, fix later.
+- Need to monitor API credit usage — each cycle costs ~$0.02-0.05.
 
 ---
 

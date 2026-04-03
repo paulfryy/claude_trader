@@ -2,9 +2,12 @@
 Main agent orchestrator — the core loop that coordinates analysis, risk, and execution.
 """
 
+import json
 import logging
 import sys
+import traceback
 from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 from rich.console import Console
@@ -12,7 +15,7 @@ from rich.logging import RichHandler
 
 from src.analysis.analyst import ClaudeAnalyst
 from src.analysis.signals import TradeAction
-from src.config import load_settings
+from src.config import ERROR_LOGS_DIR, load_settings
 from src.data.indicators import add_all_indicators, summarize_indicators
 from src.data.market_data import MarketDataClient
 from src.data.news import NewsDataClient
@@ -38,11 +41,23 @@ DEFAULT_WATCHLIST = [
 
 def setup_logging(level: str = "INFO"):
     """Configure rich logging."""
+    import io
+    import sys
+
+    # Fix Windows console encoding for Unicode characters
+    if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+            sys.stderr.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
     logging.basicConfig(
         level=level,
         format="%(message)s",
         datefmt="[%X]",
         handlers=[RichHandler(console=console, rich_tracebacks=True)],
+        force=True,
     )
 
 
@@ -64,10 +79,71 @@ class CycleMode:
             return CycleMode.CLOSING
 
 
+def validate_connections(settings) -> bool:
+    """
+    Verify API connectivity before running any cycles.
+    Returns True if all connections are healthy, False otherwise.
+    """
+    errors = []
+
+    # Check Alpaca
+    try:
+        client = MarketDataClient(settings)
+        account = client.get_account()
+        logger.info(
+            "Alpaca OK — equity: $%s, mode: %s",
+            f"{account['equity']:,.2f}",
+            "PAPER" if settings.is_paper else "LIVE",
+        )
+    except Exception as e:
+        errors.append(f"Alpaca connection failed: {e}")
+        logger.error("Alpaca connection failed: %s", e)
+
+    # Check Anthropic
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=settings.claude.anthropic_api_key)
+        resp = client.messages.create(
+            model=settings.claude.claude_model,
+            max_tokens=10,
+            messages=[{"role": "user", "content": "Say OK"}],
+        )
+        logger.info("Anthropic OK — model: %s", settings.claude.claude_model)
+    except Exception as e:
+        errors.append(f"Anthropic connection failed: {e}")
+        logger.error("Anthropic connection failed: %s", e)
+
+    if errors:
+        logger.error("Startup validation FAILED:")
+        for err in errors:
+            logger.error("  - %s", err)
+        return False
+
+    logger.info("All connections validated successfully.")
+    return True
+
+
+def _log_error(error: Exception, context: str = ""):
+    """Log an error to the errors directory with full traceback."""
+    ERROR_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    filepath = ERROR_LOGS_DIR / f"{timestamp}_error.log"
+
+    with open(filepath, "w") as f:
+        f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+        f.write(f"Context: {context}\n")
+        f.write(f"Error: {type(error).__name__}: {error}\n\n")
+        f.write("Traceback:\n")
+        f.write(traceback.format_exc())
+
+    logger.error("Error logged to %s", filepath)
+
+
 def run_analysis_cycle(
     settings=None,
     watchlist: list[str] | None = None,
     mode: str | None = None,
+    dry_run: bool = False,
 ):
     """
     Run one complete analysis and trading cycle.
@@ -77,14 +153,11 @@ def run_analysis_cycle(
         watchlist: Symbols to analyze
         mode: Cycle mode — "morning", "midday", or "closing".
               If None, determined automatically from current time.
+        dry_run: If True, run the full pipeline but skip order submission.
+                 Useful for testing without market hours.
 
-    Steps:
-    1. Fetch portfolio state
-    2. Fetch market data & news for watchlist
-    3. Run Claude analysis
-    4. Validate signals against risk rules
-    5. Execute approved trades (unless closing cycle)
-    6. Log everything
+    Returns:
+        True if cycle completed successfully, False if it failed.
     """
     if settings is None:
         settings = load_settings()
@@ -96,31 +169,49 @@ def run_analysis_cycle(
         mode = CycleMode.from_time(datetime.now().hour)
 
     # Initialize components
-    market_data = MarketDataClient(settings)
-    news_client = NewsDataClient(settings)
-    analyst = ClaudeAnalyst(settings)
-    portfolio_tracker = PortfolioTracker(settings)
-    risk_manager = RiskManager(settings)
-    executor = OrderExecutor(settings)
-    trade_journal = TradeJournal()
-    decision_log = DecisionLog()
+    try:
+        market_data = MarketDataClient(settings)
+        news_client = NewsDataClient(settings)
+        analyst = ClaudeAnalyst(settings)
+        portfolio_tracker = PortfolioTracker(settings)
+        risk_manager = RiskManager(settings)
+        executor = OrderExecutor(settings)
+        trade_journal = TradeJournal()
+        decision_log = DecisionLog()
+    except Exception as e:
+        logger.error("Failed to initialize components: %s", e)
+        _log_error(e, "Component initialization")
+        return False
 
-    # Step 1: Check market status
-    if not market_data.is_market_open():
-        logger.info("Market is closed. Skipping trading cycle.")
-        return
+    # Step 1: Check market status (skip in dry-run mode)
+    if not dry_run:
+        try:
+            if not market_data.is_market_open():
+                logger.info("Market is closed. Skipping trading cycle.")
+                return True
+        except Exception as e:
+            logger.error("Failed to check market status: %s", e)
+            _log_error(e, "Market status check")
+            return False
 
+    run_label = "DRY-RUN " if dry_run else ""
     logger.info(
-        "=== Starting %s analysis cycle at %s ===",
+        "=== Starting %s%s analysis cycle at %s ===",
+        run_label,
         mode.upper(),
         datetime.now().strftime("%Y-%m-%d %H:%M"),
     )
 
     # Step 2: Fetch portfolio state
-    account_info = market_data.get_account()
-    positions = market_data.get_positions()
-    portfolio_state = portfolio_tracker.build_state(account_info, positions)
-    portfolio_tracker.save_snapshot(portfolio_state)
+    try:
+        account_info = market_data.get_account()
+        positions = market_data.get_positions()
+        portfolio_state = portfolio_tracker.build_state(account_info, positions)
+        portfolio_tracker.save_snapshot(portfolio_state)
+    except Exception as e:
+        logger.error("Failed to fetch portfolio state: %s", e)
+        _log_error(e, "Portfolio state fetch")
+        return False
 
     logger.info(
         "Portfolio: $%.2f equity, $%.2f cash, %d positions, %.1f%% exposure",
@@ -147,10 +238,19 @@ def run_analysis_cycle(
         except Exception as e:
             logger.warning("Failed to fetch data for %s: %s", symbol, e)
 
-    # Step 4: Fetch news
-    market_news = news_client.get_market_news(limit=15)
+    if not watchlist_data:
+        logger.error("No watchlist data fetched — cannot run analysis.")
+        _log_error(RuntimeError("Empty watchlist data"), "Watchlist data fetch")
+        return False
+
+    # Step 4: Fetch news (non-critical — continue even if news fails)
+    market_news = []
     symbol_news = {}
-    # Only fetch news for current positions and top watchlist items
+    try:
+        market_news = news_client.get_market_news(limit=15)
+    except Exception as e:
+        logger.warning("Failed to fetch market news: %s", e)
+
     news_symbols = [p["symbol"] for p in positions] + watchlist[:5]
     for symbol in set(news_symbols):
         try:
@@ -159,15 +259,24 @@ def run_analysis_cycle(
             logger.warning("Failed to fetch news for %s: %s", symbol, e)
 
     # Step 5: Run Claude analysis
-    logger.info("Running Claude analysis on %d symbols (%s mode)...", len(watchlist_data), mode)
-    analysis = analyst.analyze_market(
-        account_info=account_info,
-        positions=positions,
-        watchlist_data=watchlist_data,
-        market_news=market_news,
-        symbol_news=symbol_news,
-        cycle_mode=mode,
-    )
+    try:
+        logger.info("Running Claude analysis on %d symbols (%s mode)...", len(watchlist_data), mode)
+        analysis = analyst.analyze_market(
+            account_info=account_info,
+            positions=positions,
+            watchlist_data=watchlist_data,
+            market_news=market_news,
+            symbol_news=symbol_news,
+            cycle_mode=mode,
+        )
+    except json.JSONDecodeError as e:
+        logger.error("Claude returned invalid JSON: %s", e)
+        _log_error(e, "Claude JSON parsing")
+        return False
+    except Exception as e:
+        logger.error("Claude analysis failed: %s", e)
+        _log_error(e, "Claude analysis")
+        return False
 
     logger.info(
         "Analysis complete: regime=%s (%s), %d signals, %d exits",
@@ -190,9 +299,17 @@ def run_analysis_cycle(
             )
             continue
 
-        result = executor.close_position(symbol)
-        execution_results.append(result)
-        logger.info("Closing position: %s → %s", symbol, result["status"])
+        if dry_run:
+            logger.info("[DRY RUN] Would close position: %s", symbol)
+            execution_results.append({"status": "dry_run", "symbol": symbol, "action": "close"})
+        else:
+            try:
+                result = executor.close_position(symbol)
+                execution_results.append(result)
+                logger.info("Closing position: %s → %s", symbol, result["status"])
+            except Exception as e:
+                logger.error("Failed to close position %s: %s", symbol, e)
+                execution_results.append({"status": "error", "symbol": symbol, "error": str(e)})
 
     # Step 7: Validate and execute new trade signals
     rejected_signals = []
@@ -213,7 +330,7 @@ def run_analysis_cycle(
 
         # Block new entries in closing cycle
         if is_buy and not allow_new_entries:
-            reason = f"Closing cycle — no new entries. Signal logged for morning review."
+            reason = "Closing cycle — no new entries. Signal logged for morning review."
             logger.info("CLOSING MODE: Skipping %s %s — %s", signal.action.value, signal.symbol, reason)
             rejected_signals.append({"symbol": signal.symbol, "reason": reason})
             trade_journal.log_rejection(signal, reason, portfolio_state)
@@ -249,9 +366,27 @@ def run_analysis_cycle(
         # Calculate quantity
         qty = calculate_shares(signal, portfolio_state["equity"], current_price, size_pct)
 
-        # Execute
-        result = executor.execute_signal(signal, qty, current_price)
-        execution_results.append(result)
+        if dry_run:
+            logger.info(
+                "[DRY RUN] Would execute: %s %d shares of %s @ ~$%.2f",
+                signal.action.value, qty, signal.symbol, current_price,
+            )
+            result = {
+                "status": "dry_run",
+                "symbol": signal.symbol,
+                "side": signal.action.value,
+                "qty": qty,
+                "price": current_price,
+            }
+            execution_results.append(result)
+        else:
+            try:
+                result = executor.execute_signal(signal, qty, current_price)
+                execution_results.append(result)
+            except Exception as e:
+                logger.error("Order execution failed for %s: %s", signal.symbol, e)
+                result = {"status": "error", "symbol": signal.symbol, "error": str(e)}
+                execution_results.append(result)
 
         # Log the trade
         trade_journal.log_trade(
@@ -276,11 +411,17 @@ def run_analysis_cycle(
         rejected_signals=rejected_signals,
     )
 
+    executed = sum(1 for r in execution_results if r.get("status") in ("submitted", "dry_run"))
+    errored = sum(1 for r in execution_results if r.get("status") == "error")
     logger.info(
-        "=== Cycle complete: %d trades executed, %d rejected ===",
-        sum(1 for r in execution_results if r.get("status") == "submitted"),
+        "=== %sCycle complete: %d trades executed, %d errors, %d rejected ===",
+        run_label,
+        executed,
+        errored,
         len(rejected_signals),
     )
+
+    return True
 
 
 def _was_bought_today(symbol: str, positions: list[dict]) -> bool:
@@ -318,13 +459,24 @@ def main():
     console.print(f"Model: {settings.claude.claude_model}")
 
     if not settings.is_paper:
-        console.print("[bold red]⚠ LIVE TRADING MODE — Real money at risk![/bold red]")
+        console.print("[bold red]WARNING: LIVE TRADING MODE — Real money at risk![/bold red]")
         response = input("Type 'CONFIRM' to proceed: ")
         if response != "CONFIRM":
             console.print("Aborted.")
             sys.exit(0)
 
-    run_analysis_cycle(settings)
+    # Check for --dry-run flag
+    dry_run = "--dry-run" in sys.argv
+
+    if dry_run:
+        console.print("[bold yellow]DRY RUN MODE — no orders will be submitted[/bold yellow]")
+
+    # Validate connections before running
+    if not validate_connections(settings):
+        console.print("[bold red]Startup validation failed. Fix errors above and retry.[/bold red]")
+        sys.exit(1)
+
+    run_analysis_cycle(settings, dry_run=dry_run)
 
 
 if __name__ == "__main__":

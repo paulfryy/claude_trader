@@ -145,6 +145,7 @@ Be decisive but disciplined. Every trade must have a clear rationale and exit pl
         watchlist_data: dict[str, dict],
         market_news: list[dict],
         symbol_news: dict[str, list[dict]],
+        cycle_mode: str = "morning",
     ) -> str:
         sections = []
 
