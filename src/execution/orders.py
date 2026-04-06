@@ -340,9 +340,11 @@ class OrderExecutor:
     def _cancel_existing_stops(self, symbol: str):
         """Cancel any existing stop orders for a symbol."""
         try:
-            orders = self._client.get_orders(
-                filter={"status": "open", "symbols": [symbol]}
-            )
+            from alpaca.trading.requests import GetOrdersRequest
+            from alpaca.trading.enums import QueryOrderStatus
+
+            request = GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[symbol])
+            orders = self._client.get_orders(filter=request)
             for order in orders:
                 if str(order.type) in ("stop", "stop_limit"):
                     self._client.cancel_order_by_id(order.id)
@@ -356,10 +358,14 @@ class OrderExecutor:
         Returns {symbol: {order_id, stop_price, qty}}.
         """
         try:
-            orders = self._client.get_orders(filter={"status": "open"})
+            from alpaca.trading.requests import GetOrdersRequest
+            from alpaca.trading.enums import QueryOrderStatus
+
+            request = GetOrdersRequest(status=QueryOrderStatus.OPEN)
+            orders = self._client.get_orders(filter=request)
             stops = {}
             for o in orders:
-                if str(o.type) in ("stop", "stop_limit"):
+                if "stop" in str(o.type).lower():
                     stops[o.symbol] = {
                         "order_id": str(o.id),
                         "stop_price": float(o.stop_price) if o.stop_price else None,
