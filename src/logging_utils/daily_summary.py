@@ -52,6 +52,10 @@ def write_daily_summary(
         f.write(f"**Market Regime:** {analysis.market_regime} ")
         f.write(f"(confidence: {regime_conf})\n\n")
 
+        # Market narrative
+        if analysis.market_summary:
+            f.write(f"> {analysis.market_summary}\n\n")
+
         f.write("### Key Observations\n")
         for obs in analysis.key_observations:
             f.write(f"- {obs}\n")
@@ -112,6 +116,19 @@ def write_daily_summary(
                 f.write(f"- Time Horizon: {sig.time_horizon}\n")
                 f.write(f"- Rationale: {sig.rationale}\n")
             f.write("\n")
+
+        # Stop adjustments
+        if analysis.stop_adjustments:
+            f.write("### Stop-Loss Adjustments\n")
+            for sym, price in analysis.stop_adjustments.items():
+                f.write(f"- **{sym}**: stop set/adjusted to ${price:.2f}\n")
+            f.write("\n")
+
+        # No-action explanation
+        if not analysis.trade_signals and not analysis.positions_to_close:
+            f.write("### No Trades This Cycle\n")
+            f.write("Claude reviewed all positions and watchlist symbols and determined ")
+            f.write("no new entries or exits were warranted. See market summary above for reasoning.\n\n")
 
         if errors:
             f.write("### Errors\n")

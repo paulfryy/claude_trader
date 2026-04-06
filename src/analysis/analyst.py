@@ -120,6 +120,7 @@ You must respond with valid JSON matching this schema:
 {{
     "market_regime": "bull|bear|sideways|volatile",
     "regime_confidence": "low|medium|high",
+    "market_summary": "2-3 sentence narrative: What is the market doing right now? What is your thought process this cycle? Why are you taking action or choosing to hold? Be specific about your reasoning.",
     "key_observations": ["observation 1", "observation 2"],
     "sector_outlook": {{"Technology": "bullish", "Energy": "neutral"}},
     "trade_signals": [

@@ -57,6 +57,10 @@ class MarketAnalysis(BaseModel):
     sector_outlook: dict[str, str] = Field(
         default_factory=dict, description="Sector -> outlook mapping"
     )
+    market_summary: str = Field(
+        default="",
+        description="2-3 sentence narrative of current market conditions, thought process, and reasoning for actions taken or not taken this cycle.",
+    )
     trade_signals: list[TradeSignal] = Field(default_factory=list)
     positions_to_close: list[str] = Field(
         default_factory=list, description="Symbols to exit"
