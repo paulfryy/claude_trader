@@ -284,7 +284,7 @@ def run_analysis_cycle(
     try:
         logger.info("Running Claude analysis on %d symbols (%s mode)...", len(watchlist_data), mode)
         analysis = analyst.analyze_market(
-            account_info=account_info,
+            account_info=portfolio_state,
             positions=positions,
             watchlist_data=watchlist_data,
             market_news=market_news,
