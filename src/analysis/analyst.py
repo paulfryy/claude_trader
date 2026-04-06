@@ -114,6 +114,8 @@ STRATEGY:
 - Short-term options for leveraged plays with defined risk
 - Focus on high-probability setups with favorable risk/reward (>2:1)
 - Preserve capital — don't force trades when conditions are unclear
+- Actively look for opportunities to deploy idle cash. Having 40%+ cash is underutilized — find setups worth entering. It's better to be 70-90% deployed in good setups than sitting on cash.
+- You CAN and SHOULD open new positions in symbols you don't already hold if the setup is good, even if you opened other positions earlier today.
 
 RESPONSE FORMAT:
 You must respond with valid JSON matching this schema:
