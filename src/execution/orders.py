@@ -5,10 +5,12 @@ which is essential for a $1000 account.
 """
 
 import logging
+from datetime import datetime, timedelta
 
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, TimeInForce
+from alpaca.trading.enums import ContractType, OrderSide, TimeInForce
 from alpaca.trading.requests import (
+    GetOptionContractsRequest,
     MarketOrderRequest,
     StopLossRequest,
     TakeProfitRequest,
@@ -97,6 +99,8 @@ class OrderExecutor:
     ) -> dict:
         """
         Execute an options trade signal.
+        Looks up the real contract via Alpaca's API to get the correct OCC symbol,
+        then submits the order.
 
         Args:
             signal: The approved trade signal (must have strike_price, expiration_date)
@@ -108,9 +112,6 @@ class OrderExecutor:
         if contracts <= 0:
             return {"status": "skipped", "reason": "0 contracts"}
 
-        # Build the OCC options symbol
-        # Format: SYMBOL + YYMMDD + C/P + strike*1000 (8 digits)
-        # e.g., SPY260417C00650000
         if not signal.expiration_date or not signal.strike_price:
             return {
                 "status": "skipped",
@@ -118,19 +119,28 @@ class OrderExecutor:
                 "reason": "Options signal missing expiration_date or strike_price",
             }
 
-        option_type = "C" if signal.action in (TradeAction.BUY_CALL, TradeAction.SELL_CALL) else "P"
-
-        # Parse expiration date and format as YYMMDD
-        exp = signal.expiration_date.replace("-", "")
-        if len(exp) == 8:  # YYYYMMDD
-            exp = exp[2:]  # -> YYMMDD
-
-        strike_int = int(signal.strike_price * 1000)
-        occ_symbol = f"{signal.symbol:<6}{exp}{option_type}{strike_int:08d}"
-
         side = self._get_order_side(signal.action)
         if side is None:
             return {"status": "skipped", "reason": f"No order side for action {signal.action}"}
+
+        # Look up the real contract from Alpaca
+        is_call = signal.action in (TradeAction.BUY_CALL, TradeAction.SELL_CALL)
+        contract_type = "call" if is_call else "put"
+
+        occ_symbol = self._find_option_contract(
+            underlying=signal.symbol,
+            strike=signal.strike_price,
+            expiration=signal.expiration_date,
+            contract_type=contract_type,
+        )
+
+        if not occ_symbol:
+            return {
+                "status": "error",
+                "symbol": signal.symbol,
+                "error": f"No matching {contract_type} contract found for {signal.symbol} "
+                         f"strike=${signal.strike_price} exp={signal.expiration_date}",
+            }
 
         try:
             request = MarketOrderRequest(
@@ -160,6 +170,64 @@ class OrderExecutor:
         except Exception as e:
             logger.error("Options order failed for %s: %s", occ_symbol, str(e))
             return {"status": "error", "symbol": signal.symbol, "occ_symbol": occ_symbol, "error": str(e)}
+
+    def _find_option_contract(
+        self,
+        underlying: str,
+        strike: float,
+        expiration: str,
+        contract_type: str,
+    ) -> str | None:
+        """
+        Look up the closest matching option contract via Alpaca's API.
+        Claude may give an inexact expiration (e.g., Saturday instead of Friday),
+        so we search a small date range around the requested expiry.
+
+        Returns the OCC symbol string, or None if no match found.
+        """
+        try:
+            # Parse Claude's expiration date
+            exp_date = datetime.strptime(expiration, "%Y-%m-%d").date()
+        except ValueError:
+            logger.warning("Invalid expiration date format: %s", expiration)
+            return None
+
+        ct = ContractType.CALL if contract_type == "call" else ContractType.PUT
+
+        # Search a 3-day window around the requested expiry (Claude sometimes
+        # gives Saturday/Sunday dates when the contract expires Friday)
+        for offset in [0, -1, 1, -2, 2]:
+            search_date = exp_date + timedelta(days=offset)
+            try:
+                req = GetOptionContractsRequest(
+                    underlying_symbols=[underlying],
+                    expiration_date=search_date.isoformat(),
+                    type=ct,
+                    strike_price_gte=str(strike - 1),
+                    strike_price_lte=str(strike + 1),
+                )
+                result = self._client.get_option_contracts(req)
+
+                if result.option_contracts:
+                    # Find closest strike
+                    best = min(
+                        result.option_contracts,
+                        key=lambda c: abs(float(c.strike_price) - strike),
+                    )
+                    logger.info(
+                        "Found option contract: %s (strike=%s, exp=%s)",
+                        best.symbol, best.strike_price, best.expiration_date,
+                    )
+                    return best.symbol
+            except Exception as e:
+                logger.debug("Contract search failed for %s offset %d: %s", underlying, offset, e)
+                continue
+
+        logger.warning(
+            "No option contract found for %s %s strike=%.2f exp=%s",
+            underlying, contract_type, strike, expiration,
+        )
+        return None
 
     def _submit_notional_market_order(self, symbol: str, notional: float, side: OrderSide):
         """Submit a notional (dollar-based) market order. Alpaca handles fractional shares."""

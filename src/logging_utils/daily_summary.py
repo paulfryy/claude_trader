@@ -72,7 +72,14 @@ def write_daily_summary(
             f.write("### Trades Executed\n")
             for trade in executed:
                 f.write(f"- **{trade.get('side', '').upper()} {trade.get('symbol')}** — ")
-                f.write(f"{trade.get('qty')} shares (Order ID: {trade.get('order_id', 'N/A')})\n")
+                # Show notional amount for equity orders, contracts for options
+                if trade.get("notional"):
+                    f.write(f"${trade['notional']:.2f} notional")
+                elif trade.get("contracts"):
+                    f.write(f"{trade['contracts']} contracts")
+                elif trade.get("qty"):
+                    f.write(f"{trade['qty']} shares")
+                f.write(f" (Order ID: {trade.get('order_id', 'N/A')})\n")
             f.write("\n")
 
         if closed:

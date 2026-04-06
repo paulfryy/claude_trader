@@ -111,7 +111,15 @@ class Screener:
                     continue
 
                 price = snap.daily_bar.close
-                volume = snap.daily_bar.volume
+
+                # Use previous day's volume for liquidity filter — today's
+                # daily_bar volume is too low early in the session (at 9:45 AM
+                # it may be <20k even for SPY). Previous day is the real proxy
+                # for "is this stock liquid enough."
+                if snap.previous_daily_bar:
+                    volume = snap.previous_daily_bar.volume
+                else:
+                    volume = snap.daily_bar.volume
 
                 if price < MIN_PRICE or price > MAX_PRICE:
                     continue
