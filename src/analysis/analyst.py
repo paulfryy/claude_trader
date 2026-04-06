@@ -31,6 +31,7 @@ class ClaudeAnalyst:
         market_news: list[dict],
         symbol_news: dict[str, list[dict]],
         cycle_mode: str = "morning",
+        open_stops: dict[str, dict] | None = None,
     ) -> MarketAnalysis:
         """
         Run a full market analysis cycle.
@@ -42,6 +43,7 @@ class ClaudeAnalyst:
             market_news: Recent general market news
             symbol_news: Dict of symbol -> news articles
             cycle_mode: "morning", "midday", or "closing"
+            open_stops: Dict of symbol -> {stop_price, qty} for existing stop orders
         """
         prompt = self._build_analysis_prompt(
             account_info=account_info,
@@ -50,6 +52,7 @@ class ClaudeAnalyst:
             market_news=market_news,
             symbol_news=symbol_news,
             cycle_mode=cycle_mode,
+            open_stops=open_stops or {},
         )
 
         logger.info("Sending analysis request to Claude (%s, %s mode)", self._model, cycle_mode)
@@ -135,8 +138,16 @@ You must respond with valid JSON matching this schema:
             "option_type": null
         }}
     ],
-    "positions_to_close": ["SYMBOL1"]
+    "positions_to_close": ["SYMBOL1"],
+    "stop_adjustments": {{"SYMBOL1": 145.00}}
 }}
+
+STOP-LOSS MANAGEMENT:
+- Every open position should have a stop-loss. Check "current_stop_loss" in positions.
+- If a position shows "NONE — needs stop set", include it in stop_adjustments with an appropriate stop price.
+- You can tighten stops (raise them) on winning positions to lock in profits.
+- You can adjust stops based on new support levels or changed thesis.
+- stop_adjustments is a dict of symbol -> new stop price.
 
 Be decisive but disciplined. Every trade must have a clear rationale and exit plan."""
 
@@ -148,6 +159,7 @@ Be decisive but disciplined. Every trade must have a clear rationale and exit pl
         market_news: list[dict],
         symbol_news: dict[str, list[dict]],
         cycle_mode: str = "morning",
+        open_stops: dict[str, dict] | None = None,
     ) -> str:
         sections = []
 
@@ -155,10 +167,18 @@ Be decisive but disciplined. Every trade must have a clear rationale and exit pl
         sections.append("## ACCOUNT STATUS")
         sections.append(json.dumps(account_info, indent=2, default=str))
 
-        # Current positions
+        # Current positions with stop-loss info
         sections.append("\n## CURRENT POSITIONS")
         if positions:
-            sections.append(json.dumps(positions, indent=2, default=str))
+            for p in positions:
+                sym = p["symbol"]
+                stop_info = open_stops.get(sym, {}) if open_stops else {}
+                p_display = {**p}
+                if stop_info:
+                    p_display["current_stop_loss"] = stop_info.get("stop_price")
+                else:
+                    p_display["current_stop_loss"] = "NONE — needs stop set"
+                sections.append(json.dumps(p_display, indent=2, default=str))
         else:
             sections.append("No open positions.")
 

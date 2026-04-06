@@ -271,6 +271,15 @@ def run_analysis_cycle(
         except Exception as e:
             logger.warning("Failed to fetch news for %s: %s", symbol, e)
 
+    # Step 4b: Get existing stop orders so Claude can see current protection
+    open_stops = {}
+    if not dry_run:
+        try:
+            open_stops = executor.get_open_stops()
+            logger.info("Open stop orders: %s", list(open_stops.keys()) if open_stops else "none")
+        except Exception as e:
+            logger.warning("Failed to fetch open stops: %s", e)
+
     # Step 5: Run Claude analysis
     try:
         logger.info("Running Claude analysis on %d symbols (%s mode)...", len(watchlist_data), mode)
@@ -281,6 +290,7 @@ def run_analysis_cycle(
             market_news=market_news,
             symbol_news=symbol_news,
             cycle_mode=mode,
+            open_stops=open_stops,
         )
     except json.JSONDecodeError as e:
         logger.error("Claude returned invalid JSON: %s", e)
@@ -446,10 +456,25 @@ def run_analysis_cycle(
                     "price": current_price,
                 }
                 execution_results.append(result)
+
+                # Log the stop-loss we would set
+                if is_buy and signal.stop_loss_price:
+                    logger.info(
+                        "[DRY RUN] Would set stop-loss for %s @ $%.2f",
+                        signal.symbol, signal.stop_loss_price,
+                    )
             else:
                 try:
                     result = executor.execute_equity_signal(signal, notional)
                     execution_results.append(result)
+
+                    # Set stop-loss after successful buy
+                    if is_buy and signal.stop_loss_price and result.get("status") == "submitted":
+                        stop_result = executor.set_stop_loss(signal.symbol, signal.stop_loss_price)
+                        logger.info(
+                            "Stop-loss for %s: %s",
+                            signal.symbol, stop_result.get("status"),
+                        )
                 except Exception as e:
                     logger.error("Order execution failed for %s: %s", signal.symbol, e)
                     result = {"status": "error", "symbol": signal.symbol, "error": str(e)}
@@ -462,6 +487,21 @@ def run_analysis_cycle(
             portfolio_state=portfolio_state,
             risk_result={"adjusted_size_pct": risk_result.adjusted_size_pct} if risk_result.adjusted_size_pct else None,
         )
+
+    # Step 7b: Execute stop-loss adjustments from Claude
+    if analysis.stop_adjustments:
+        for symbol, new_stop in analysis.stop_adjustments.items():
+            if dry_run:
+                logger.info("[DRY RUN] Would adjust stop for %s to $%.2f", symbol, new_stop)
+            else:
+                try:
+                    stop_result = executor.update_stop_loss(symbol, new_stop)
+                    logger.info(
+                        "Stop adjusted: %s -> $%.2f (%s)",
+                        symbol, new_stop, stop_result.get("status"),
+                    )
+                except Exception as e:
+                    logger.error("Failed to adjust stop for %s: %s", symbol, e)
 
     # Step 8: Log the complete decision cycle
     decision_log.log_analysis(

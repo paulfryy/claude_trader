@@ -61,4 +61,8 @@ class MarketAnalysis(BaseModel):
     positions_to_close: list[str] = Field(
         default_factory=list, description="Symbols to exit"
     )
+    stop_adjustments: dict[str, float] = Field(
+        default_factory=dict,
+        description="Symbol -> new stop price. Adjusts existing stops on open positions.",
+    )
     raw_analysis: str = Field(description="Full Claude response for logging")

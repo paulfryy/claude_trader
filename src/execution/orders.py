@@ -270,6 +270,106 @@ class OrderExecutor:
             )
             return self._submit_notional_market_order(symbol, notional, side)
 
+    def set_stop_loss(self, symbol: str, stop_price: float) -> dict:
+        """
+        Set a stop-loss order for an existing position.
+
+        Alpaca doesn't support fractional qty on GTC stop orders, so we
+        floor to whole shares. Positions under 1 share can't have a stop —
+        they'll be managed by Claude's cycle-based review instead.
+
+        Cancels any existing stop for this symbol first to avoid duplicates.
+        """
+        import math
+
+        # Get current position qty
+        try:
+            position = self._client.get_open_position(symbol)
+            qty = float(position.qty)
+        except Exception as e:
+            logger.warning("Can't set stop for %s — no position found: %s", symbol, e)
+            return {"status": "skipped", "symbol": symbol, "reason": "no position"}
+
+        whole_qty = math.floor(qty)
+        if whole_qty < 1:
+            logger.info(
+                "Position %s has %.4f shares (< 1 whole share) — stop-loss will be "
+                "managed by cycle-based review instead",
+                symbol, qty,
+            )
+            return {
+                "status": "skipped",
+                "symbol": symbol,
+                "reason": f"fractional only ({qty:.4f} shares), managed by cycle review",
+            }
+
+        # Cancel any existing stop orders for this symbol
+        self._cancel_existing_stops(symbol)
+
+        try:
+            from alpaca.trading.requests import StopOrderRequest
+
+            req = StopOrderRequest(
+                symbol=symbol,
+                qty=whole_qty,
+                side=OrderSide.SELL,
+                stop_price=stop_price,
+                time_in_force=TimeInForce.GTC,
+            )
+            order = self._client.submit_order(req)
+            logger.info(
+                "Stop-loss set: %s — sell %d shares @ $%.2f (ID: %s)",
+                symbol, whole_qty, stop_price, order.id,
+            )
+            return {
+                "status": "submitted",
+                "order_id": str(order.id),
+                "symbol": symbol,
+                "type": "stop_loss",
+                "stop_price": stop_price,
+                "qty": whole_qty,
+            }
+        except Exception as e:
+            logger.error("Failed to set stop-loss for %s: %s", symbol, e)
+            return {"status": "error", "symbol": symbol, "error": str(e)}
+
+    def update_stop_loss(self, symbol: str, new_stop_price: float) -> dict:
+        """Update stop-loss for a position — cancels old stop and sets new one."""
+        return self.set_stop_loss(symbol, new_stop_price)
+
+    def _cancel_existing_stops(self, symbol: str):
+        """Cancel any existing stop orders for a symbol."""
+        try:
+            orders = self._client.get_orders(
+                filter={"status": "open", "symbols": [symbol]}
+            )
+            for order in orders:
+                if str(order.type) in ("stop", "stop_limit"):
+                    self._client.cancel_order_by_id(order.id)
+                    logger.info("Cancelled existing stop order %s for %s", order.id, symbol)
+        except Exception as e:
+            logger.debug("Error checking existing stops for %s: %s", symbol, e)
+
+    def get_open_stops(self) -> dict[str, dict]:
+        """
+        Get all open stop orders, keyed by symbol.
+        Returns {symbol: {order_id, stop_price, qty}}.
+        """
+        try:
+            orders = self._client.get_orders(filter={"status": "open"})
+            stops = {}
+            for o in orders:
+                if str(o.type) in ("stop", "stop_limit"):
+                    stops[o.symbol] = {
+                        "order_id": str(o.id),
+                        "stop_price": float(o.stop_price) if o.stop_price else None,
+                        "qty": float(o.qty) if o.qty else None,
+                    }
+            return stops
+        except Exception as e:
+            logger.warning("Failed to get open stops: %s", e)
+            return {}
+
     def close_position(self, symbol: str) -> dict:
         """Close an entire position for a symbol."""
         try:
