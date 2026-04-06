@@ -146,8 +146,9 @@ You must respond with valid JSON matching this schema:
 }}
 
 STOP-LOSS MANAGEMENT:
-- Every open position should have a stop-loss. Check "current_stop_loss" in positions.
-- If a position shows "NONE — needs stop set", include it in stop_adjustments with an appropriate stop price.
+- Check "current_stop_loss" in each position.
+- If a position shows "NONE — needs stop set", include it in stop_adjustments.
+- If a position shows "FRACTIONAL POSITION", do NOT include it in stop_adjustments (the broker can't set stops on fractional shares). Instead, if you want to exit it, use a sell signal in trade_signals.
 - You can tighten stops (raise them) on winning positions to lock in profits.
 - You can adjust stops based on new support levels or changed thesis.
 - stop_adjustments is a dict of symbol -> new stop price.
@@ -173,14 +174,18 @@ Be decisive but disciplined. Every trade must have a clear rationale and exit pl
         # Current positions with stop-loss info
         sections.append("\n## CURRENT POSITIONS")
         if positions:
+            import math
             for p in positions:
                 sym = p["symbol"]
+                qty = p.get("qty", 0)
                 stop_info = open_stops.get(sym, {}) if open_stops else {}
                 p_display = {**p}
                 if stop_info:
                     p_display["current_stop_loss"] = stop_info.get("stop_price")
+                elif math.floor(qty) < 1:
+                    p_display["current_stop_loss"] = "FRACTIONAL POSITION — cannot set Alpaca stop order. You manage this position via sell signals if it needs to be exited."
                 else:
-                    p_display["current_stop_loss"] = "NONE — needs stop set"
+                    p_display["current_stop_loss"] = "NONE — needs stop set via stop_adjustments"
                 sections.append(json.dumps(p_display, indent=2, default=str))
         else:
             sections.append("No open positions.")

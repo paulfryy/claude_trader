@@ -489,6 +489,7 @@ def run_analysis_cycle(
         )
 
     # Step 7b: Execute stop-loss adjustments from Claude
+    #          (skip fractional-only positions silently — Claude is told about them)
     if analysis.stop_adjustments:
         for symbol, new_stop in analysis.stop_adjustments.items():
             if dry_run:
@@ -496,6 +497,8 @@ def run_analysis_cycle(
             else:
                 try:
                     stop_result = executor.update_stop_loss(symbol, new_stop)
+                    if stop_result.get("status") == "skipped":
+                        continue  # Fractional position — handled by cycle review, don't log
                     logger.info(
                         "Stop adjusted: %s -> $%.2f (%s)",
                         symbol, new_stop, stop_result.get("status"),
