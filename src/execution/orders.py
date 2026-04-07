@@ -346,11 +346,11 @@ class OrderExecutor:
             request = GetOrdersRequest(status=QueryOrderStatus.OPEN, symbols=[symbol])
             orders = self._client.get_orders(filter=request)
             for order in orders:
-                if str(order.type) in ("stop", "stop_limit"):
+                if "stop" in str(order.type).lower():
                     self._client.cancel_order_by_id(order.id)
                     logger.info("Cancelled existing stop order %s for %s", order.id, symbol)
         except Exception as e:
-            logger.debug("Error checking existing stops for %s: %s", symbol, e)
+            logger.warning("Error cancelling existing stops for %s: %s", symbol, e)
 
     def get_open_stops(self) -> dict[str, dict]:
         """
