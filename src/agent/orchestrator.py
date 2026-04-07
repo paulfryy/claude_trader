@@ -327,6 +327,8 @@ def run_analysis_cycle(
             execution_results.append({"status": "dry_run", "symbol": symbol, "action": "close"})
         else:
             try:
+                # Cancel any stop orders first — they hold shares and block the close
+                executor._cancel_existing_stops(symbol)
                 result = executor.close_position(symbol)
                 execution_results.append(result)
                 logger.info("Closing position: %s → %s", symbol, result["status"])
