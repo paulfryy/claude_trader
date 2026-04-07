@@ -367,6 +367,23 @@ def run_analysis_cycle(
             trade_journal.log_rejection(signal, reason, portfolio_state)
             continue
 
+        # Sell signals: close the position directly (don't go through sizing)
+        if is_sell and signal.action == TradeAction.SELL:
+            if dry_run:
+                logger.info("[DRY RUN] Would close position: %s", signal.symbol)
+                result = {"status": "dry_run", "symbol": signal.symbol, "action": "close"}
+            else:
+                # Cancel any existing stop orders first
+                executor._cancel_existing_stops(signal.symbol)
+                result = executor.close_position(signal.symbol)
+            execution_results.append(result)
+            trade_journal.log_trade(
+                signal=signal, execution_result=result,
+                portfolio_state=portfolio_state,
+            )
+            logger.info("Sell signal: %s -> %s", signal.symbol, result.get("status"))
+            continue
+
         # Risk check
         risk_result = risk_manager.validate_signal(signal, portfolio_state)
 
@@ -465,6 +482,11 @@ def run_analysis_cycle(
                     )
             else:
                 try:
+                    # Cancel existing stops before buying — Alpaca rejects buys
+                    # with "wash trade" if a sell stop exists on the same symbol
+                    if is_buy:
+                        executor._cancel_existing_stops(signal.symbol)
+
                     result = executor.execute_equity_signal(signal, notional)
                     execution_results.append(result)
 
