@@ -469,8 +469,15 @@ def run_analysis_cycle(
                     execution_results.append(result)
 
                     # Set stop-loss after successful buy
+                    # Retry with short delay — the order may not have filled yet
                     if is_buy and signal.stop_loss_price and result.get("status") == "submitted":
-                        stop_result = executor.set_stop_loss(signal.symbol, signal.stop_loss_price)
+                        import time
+                        for attempt in range(3):
+                            time.sleep(1)
+                            stop_result = executor.set_stop_loss(signal.symbol, signal.stop_loss_price)
+                            if stop_result.get("status") != "skipped" or "no position" not in stop_result.get("reason", ""):
+                                break
+                            logger.debug("Stop-loss attempt %d for %s — waiting for fill...", attempt + 1, signal.symbol)
                         logger.info(
                             "Stop-loss for %s: %s",
                             signal.symbol, stop_result.get("status"),
