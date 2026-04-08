@@ -107,7 +107,11 @@ def write_daily_summary(
                 stop = f"${sig.stop_loss_price:.2f}" if sig.stop_loss_price else "N/A (long option — max loss = premium)"
                 rr = f"{sig.risk_reward_ratio:.1f}" if sig.risk_reward_ratio else "N/A"
 
-                f.write(f"\n**{sig.action.value.upper()} {sig.symbol}** [{status}]\n")
+                catalyst_tag = ""
+                if sig.is_catalyst_trade:
+                    catalyst_tag = f" CATALYST: {sig.catalyst}"
+
+                f.write(f"\n**{sig.action.value.upper()} {sig.symbol}** [{status}]{catalyst_tag}\n")
                 f.write(f"- Conviction: {conviction}\n")
                 f.write(f"- Size: {sig.position_size_pct:.0%} of portfolio\n")
                 f.write(f"- Target: {target}\n")

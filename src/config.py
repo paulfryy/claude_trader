@@ -52,6 +52,7 @@ class RiskSettings(BaseSettings):
     model_config = {**_ENV_COMMON, "env_prefix": ""}
 
     max_position_pct: float = Field(default=0.15, description="Max % of portfolio in one position")
+    max_catalyst_position_pct: float = Field(default=0.05, description="Max % for catalyst/overnight trades")
     max_total_exposure_pct: float = Field(default=0.90, description="Max % of portfolio deployed")
     max_options_exposure_pct: float = Field(default=0.30, description="Max % in options")
     max_drawdown_pct: float = Field(default=0.15, description="Halt if portfolio drops this %")

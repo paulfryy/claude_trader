@@ -88,12 +88,20 @@ class ClaudeAnalyst:
                 "- Be more selective than the morning cycle"
             ),
             "closing": (
-                "CYCLE MODE: CLOSING — End-of-day review. NO NEW ENTRIES.\n"
-                "- Do NOT propose any buy signals — they will be rejected\n"
+                "CYCLE MODE: CLOSING — End-of-day review and catalyst entries.\n"
                 "- Review existing positions: should any be closed before overnight hold?\n"
                 "- Summarize the day's market action and what to watch for tomorrow\n"
                 "- Include observations that should inform tomorrow's morning analysis\n"
-                "- Add a 'tomorrow_watchlist' note in key_observations for morning follow-up"
+                "- Add a 'tomorrow_watchlist' note in key_observations for morning follow-up\n"
+                "\n"
+                "CATALYST ENTRIES (closing cycle only):\n"
+                "- You MAY open NEW positions if there is a specific overnight catalyst:\n"
+                "  earnings reports, FDA decisions, product launches, major policy announcements\n"
+                "- Catalyst trades MUST set is_catalyst_trade=true and describe the catalyst\n"
+                "- Max position size for catalyst trades: 5% (NOT the normal 15%)\n"
+                "- Options are ideal for catalyst plays — defined risk for binary events\n"
+                "- If no catalysts exist, do NOT force entries. Closing cycle without catalysts = review only.\n"
+                "- Regular (non-catalyst) buy signals will be REJECTED in closing mode"
             ),
         }
 
@@ -144,6 +152,8 @@ You must respond with valid JSON matching this schema:
             "rationale": "Why this trade makes sense",
             "time_horizon": "3-5 days",
             "risk_reward_ratio": 2.5,
+            "is_catalyst_trade": false,
+            "catalyst": null,
             "strike_price": null,
             "expiration_date": null,
             "option_type": null

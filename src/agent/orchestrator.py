@@ -353,13 +353,21 @@ def run_analysis_cycle(
             TradeAction.SELL, TradeAction.SELL_CALL, TradeAction.SELL_PUT,
         )
 
-        # Block new entries in closing cycle
+        # Block non-catalyst entries in closing cycle
+        # Catalyst trades (earnings plays, etc.) are allowed with tighter size limits
         if is_buy and not allow_new_entries:
-            reason = "Closing cycle — no new entries. Signal logged for morning review."
-            logger.info("CLOSING MODE: Skipping %s %s — %s", signal.action.value, signal.symbol, reason)
-            rejected_signals.append({"symbol": signal.symbol, "reason": reason})
-            trade_journal.log_rejection(signal, reason, portfolio_state)
-            continue
+            if signal.is_catalyst_trade and signal.catalyst:
+                logger.info(
+                    "CLOSING MODE: Allowing catalyst entry %s %s — %s",
+                    signal.action.value, signal.symbol, signal.catalyst,
+                )
+                # Catalyst trade — proceed to risk checks (which enforce the 5% limit)
+            else:
+                reason = "Closing cycle — no new entries without a catalyst. Signal logged for morning review."
+                logger.info("CLOSING MODE: Skipping %s %s — %s", signal.action.value, signal.symbol, reason)
+                rejected_signals.append({"symbol": signal.symbol, "reason": reason})
+                trade_journal.log_rejection(signal, reason, portfolio_state)
+                continue
 
         # PDT protection: don't sell anything we bought today
         if is_sell and _was_bought_today(signal.symbol, positions):

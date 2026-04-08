@@ -40,6 +40,7 @@ class RiskManager:
         """
         checks = [
             self._check_drawdown_circuit_breaker,
+            self._check_catalyst_size,
             self._check_position_size,
             self._check_total_exposure,
             self._check_options_exposure,
@@ -47,6 +48,7 @@ class RiskManager:
             self._check_has_stop_loss,
         ]
 
+        adjusted_size = None
         for check in checks:
             result = check(signal, portfolio_state)
             if not result.approved:
@@ -58,13 +60,18 @@ class RiskManager:
                 )
                 return result
 
+            # Track the tightest size adjustment across all checks
+            if result.adjusted_size_pct is not None:
+                if adjusted_size is None or result.adjusted_size_pct < adjusted_size:
+                    adjusted_size = result.adjusted_size_pct
+
         logger.info(
             "RISK APPROVED: %s %s (size: %.1f%%)",
             signal.action.value,
             signal.symbol,
-            signal.position_size_pct * 100,
+            (adjusted_size or signal.position_size_pct) * 100,
         )
-        return RiskCheckResult(approved=True, signal=signal)
+        return RiskCheckResult(approved=True, signal=signal, adjusted_size_pct=adjusted_size)
 
     def _check_drawdown_circuit_breaker(
         self, signal: TradeSignal, state: dict
@@ -80,6 +87,41 @@ class RiskManager:
                 signal=signal,
                 reason=f"Circuit breaker: drawdown {drawdown:.1%} >= {self.risk.max_drawdown_pct:.1%} limit. No new positions.",
             )
+        return RiskCheckResult(approved=True, signal=signal)
+
+    def _check_catalyst_size(
+        self, signal: TradeSignal, state: dict
+    ) -> RiskCheckResult:
+        """
+        Enforce tighter position size for catalyst/overnight trades.
+        Catalyst trades are capped at max_catalyst_position_pct (5%) instead of the
+        normal max_position_pct (15%) because overnight events carry gap risk.
+        """
+        if not signal.is_catalyst_trade:
+            return RiskCheckResult(approved=True, signal=signal)
+
+        if signal.action in (TradeAction.SELL, TradeAction.HOLD):
+            return RiskCheckResult(approved=True, signal=signal)
+
+        if not signal.catalyst:
+            return RiskCheckResult(
+                approved=False,
+                signal=signal,
+                reason="Catalyst trade must specify the catalyst (e.g., 'earnings after close').",
+            )
+
+        max_pct = self.risk.max_catalyst_position_pct
+        if signal.position_size_pct > max_pct:
+            logger.info(
+                "Clamping catalyst trade %s from %.1f%% to %.1f%% (catalyst limit)",
+                signal.symbol, signal.position_size_pct * 100, max_pct * 100,
+            )
+            return RiskCheckResult(
+                approved=True,
+                signal=signal,
+                adjusted_size_pct=max_pct,
+            )
+
         return RiskCheckResult(approved=True, signal=signal)
 
     def _check_position_size(

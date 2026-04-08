@@ -41,6 +41,16 @@ class TradeSignal(BaseModel):
         default=None, description="Estimated risk/reward ratio"
     )
 
+    # Catalyst flag — for closing cycle entries that have a specific overnight catalyst
+    is_catalyst_trade: bool = Field(
+        default=False,
+        description="True if this trade is driven by a specific catalyst (earnings, FDA, etc.). Required for closing cycle entries.",
+    )
+    catalyst: str | None = Field(
+        default=None,
+        description="The specific catalyst, e.g. 'AAPL earnings after close', 'FDA approval expected'. Required if is_catalyst_trade=true.",
+    )
+
     # Options-specific fields
     strike_price: float | None = None
     expiration_date: str | None = None
