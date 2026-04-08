@@ -493,14 +493,17 @@ def run_analysis_cycle(
                     execution_results.append(result)
 
                     # Set stop-loss after successful buy
-                    # Retry with short delay — the order may not have filled yet
+                    # Retry with increasing delay — order needs to fully fill first
                     if is_buy and signal.stop_loss_price and result.get("status") == "submitted":
                         import time
-                        for attempt in range(3):
-                            time.sleep(1)
+                        for attempt in range(4):
+                            time.sleep(2)  # 2s between attempts (total up to 8s)
                             stop_result = executor.set_stop_loss(signal.symbol, signal.stop_loss_price)
-                            if stop_result.get("status") != "skipped" or "no position" not in stop_result.get("reason", ""):
-                                break
+                            status = stop_result.get("status", "")
+                            if status == "submitted":
+                                break  # Success
+                            if status == "skipped" and "fractional" in stop_result.get("reason", ""):
+                                break  # Fractional position — can't set stop, that's OK
                             logger.debug("Stop-loss attempt %d for %s — waiting for fill...", attempt + 1, signal.symbol)
                         logger.info(
                             "Stop-loss for %s: %s",

@@ -304,7 +304,10 @@ class OrderExecutor:
             }
 
         # Cancel any existing stop orders for this symbol
+        # Wait briefly for cancellation to process before setting new stop
         self._cancel_existing_stops(symbol)
+        import time
+        time.sleep(0.5)
 
         try:
             from alpaca.trading.requests import StopOrderRequest
