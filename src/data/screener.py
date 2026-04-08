@@ -140,7 +140,7 @@ class Screener:
         """
         scored = []
         chunk_size = 50
-        start_date = datetime.now() - timedelta(days=120)
+        start_date = datetime.now() - timedelta(days=90)
 
         for i in range(0, len(symbols), chunk_size):
             chunk = symbols[i:i + chunk_size]
@@ -149,7 +149,6 @@ class Screener:
                     symbol_or_symbols=chunk,
                     timeframe=TimeFrame.Day,
                     start=start_date,
-                    limit=60,
                 )
                 bars = self._client.get_stock_bars(request)
                 df = bars.df
