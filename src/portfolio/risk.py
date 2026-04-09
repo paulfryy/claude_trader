@@ -183,8 +183,14 @@ class RiskManager:
             return RiskCheckResult(approved=True, signal=signal)
 
         equity = state.get("equity", 0)
+        if equity <= 0:
+            return RiskCheckResult(
+                approved=False,
+                signal=signal,
+                reason="Cannot open options position with zero or negative equity.",
+            )
         current_options = state.get("options_exposure", 0)
-        options_pct = current_options / equity if equity > 0 else 0
+        options_pct = current_options / equity
         new_options_pct = options_pct + signal.position_size_pct
 
         if new_options_pct > self.risk.max_options_exposure_pct:

@@ -457,7 +457,8 @@ def run_analysis_cycle(
                         position_size_pct=size_pct,
                     )
                     if contracts <= 0:
-                        contracts = 1  # Try at least 1 contract
+                        logger.warning("Cannot afford options contract for %s, skipping", signal.symbol)
+                        continue
 
                     result = executor.execute_options_signal(signal, contracts)
                     execution_results.append(result)

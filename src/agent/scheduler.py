@@ -69,6 +69,17 @@ def start_scheduler():
     console.print("[bold green]Claude Trading Agent — Scheduler[/bold green]")
     console.print(f"Mode: {'PAPER' if settings.is_paper else '[bold red]LIVE[/bold red]'}")
     console.print(f"Model: {settings.claude.claude_model}")
+    console.print(f"Starting Capital: ${settings.starting_capital:,.2f}")
+
+    # LIVE MODE SAFETY CHECK
+    if not settings.is_paper:
+        console.print("\n[bold red]WARNING: LIVE TRADING MODE — Real money at risk![/bold red]")
+        console.print(f"[bold red]This will trade with REAL MONEY on Alpaca.[/bold red]")
+        console.print(f"[bold red]Starting capital: ${settings.starting_capital:,.2f}[/bold red]")
+        response = input("\nType 'CONFIRM LIVE' to proceed with live trading: ")
+        if response != "CONFIRM LIVE":
+            console.print("Aborted. Set ALPACA_TRADING_MODE=paper in .env for paper trading.")
+            sys.exit(0)
 
     # Validate connections at startup
     console.print("\nValidating API connections...")

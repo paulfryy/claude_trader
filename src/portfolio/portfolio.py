@@ -11,9 +11,11 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from src.config import PORTFOLIO_LOGS_DIR, Settings
+from src.config import LOGS_DIR, PORTFOLIO_LOGS_DIR, Settings
 
 logger = logging.getLogger(__name__)
+
+WATERMARK_FILE = LOGS_DIR / "high_watermark.json"
 
 
 class PortfolioTracker:
@@ -22,7 +24,7 @@ class PortfolioTracker:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._starting_capital = settings.starting_capital
-        self._high_watermark: float = settings.starting_capital
+        self._high_watermark: float = self._load_watermark()
 
     def build_state(self, account_info: dict, positions: list[dict]) -> dict:
         """
@@ -39,10 +41,20 @@ class PortfolioTracker:
         # Virtual equity = starting capital + P&L from our trades
         # This is what the agent uses for all sizing and risk decisions
         virtual_equity = self._starting_capital + total_unrealized_pl
-        virtual_cash = virtual_equity - total_position_value
 
-        # Exposure calculated against virtual equity
-        exposure_pct = total_position_value / virtual_equity if virtual_equity > 0 else 0
+        # Guard: if virtual equity is zero or negative, force max exposure
+        # to trigger the drawdown circuit breaker and halt all new trades
+        if virtual_equity <= 0:
+            logger.error(
+                "VIRTUAL EQUITY IS <= 0 ($%.2f). All new trades will be blocked.",
+                virtual_equity,
+            )
+            virtual_equity = max(virtual_equity, 1.0)  # Prevent division by zero
+            exposure_pct = 1.0  # Force circuit breaker
+        else:
+            exposure_pct = total_position_value / virtual_equity
+
+        virtual_cash = virtual_equity - total_position_value
 
         # Options vs equity exposure
         options_value = sum(
@@ -54,9 +66,10 @@ class PortfolioTracker:
         # P&L
         total_return_pct = (virtual_equity - self._starting_capital) / self._starting_capital
 
-        # Update high watermark
+        # Update high watermark (persisted to disk so it survives restarts)
         if virtual_equity > self._high_watermark:
             self._high_watermark = virtual_equity
+            self._save_watermark()
 
         # Drawdown from peak
         drawdown_pct = (
@@ -105,6 +118,29 @@ class PortfolioTracker:
 
         logger.info("Portfolio snapshot saved: %s", filepath)
         return filepath
+
+
+    def _load_watermark(self) -> float:
+        """Load high watermark from disk, or use starting capital if none exists."""
+        if WATERMARK_FILE.exists():
+            try:
+                with open(WATERMARK_FILE) as f:
+                    data = json.load(f)
+                saved = data.get("high_watermark", self._starting_capital)
+                logger.info("Loaded high watermark: $%.2f", saved)
+                return saved
+            except Exception:
+                pass
+        return self._starting_capital
+
+    def _save_watermark(self):
+        """Persist high watermark to disk."""
+        WATERMARK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(WATERMARK_FILE, "w") as f:
+            json.dump({
+                "high_watermark": self._high_watermark,
+                "updated_at": datetime.now().isoformat(),
+            }, f, indent=2)
 
 
 def _is_options_position(position: dict) -> bool:
