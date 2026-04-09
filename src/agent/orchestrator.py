@@ -339,6 +339,11 @@ def run_analysis_cycle(
     # Step 7: Validate and execute new trade signals
     rejected_signals = []
 
+    # Track exposure and options exposure added this cycle so subsequent
+    # risk checks account for trades already executed within the same cycle
+    cycle_added_exposure_pct = 0.0
+    cycle_added_options_value = 0.0
+
     # In closing mode, block all new entries — analysis only
     allow_new_entries = mode != CycleMode.CLOSING
 
@@ -394,8 +399,13 @@ def run_analysis_cycle(
             logger.info("Sell signal: %s -> %s", signal.symbol, result.get("status"))
             continue
 
-        # Risk check
-        risk_result = risk_manager.validate_signal(signal, portfolio_state)
+        # Risk check — use updated state that reflects trades already made this cycle
+        live_state = {
+            **portfolio_state,
+            "exposure_pct": portfolio_state.get("exposure_pct", 0) + cycle_added_exposure_pct,
+            "options_exposure": portfolio_state.get("options_exposure", 0) + cycle_added_options_value,
+        }
+        risk_result = risk_manager.validate_signal(signal, live_state)
 
         if not risk_result.approved:
             trade_journal.log_rejection(signal, risk_result.reason, portfolio_state)
@@ -522,6 +532,14 @@ def run_analysis_cycle(
                     logger.error("Order execution failed for %s: %s", signal.symbol, e)
                     result = {"status": "error", "symbol": signal.symbol, "error": str(e)}
                     execution_results.append(result)
+
+        # Track exposure added this cycle for subsequent risk checks
+        # (applies to both equity and options buys)
+        if is_buy and result.get("status") in ("submitted", "dry_run"):
+            cycle_added_exposure_pct += size_pct
+            if is_options:
+                # Track options exposure in dollar terms for the risk check
+                cycle_added_options_value += portfolio_state["equity"] * size_pct
 
         # Log the trade
         trade_journal.log_trade(

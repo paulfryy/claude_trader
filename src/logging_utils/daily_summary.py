@@ -111,7 +111,24 @@ def write_daily_summary(
                 if sig.is_catalyst_trade:
                     catalyst_tag = f" CATALYST: {sig.catalyst}"
 
+                # Options details if applicable
+                is_option = sig.action.value in ("buy_call", "buy_put", "sell_call", "sell_put")
+                opt_type = ""
+                if is_option:
+                    if "call" in sig.action.value:
+                        opt_type = "CALL"
+                    else:
+                        opt_type = "PUT"
+                    direction = "LONG" if sig.action.value.startswith("buy") else "SHORT"
+
                 f.write(f"\n**{sig.action.value.upper()} {sig.symbol}** [{status}]{catalyst_tag}\n")
+                if is_option:
+                    f.write(f"- Option: {direction} {opt_type}")
+                    if sig.strike_price:
+                        f.write(f" strike ${sig.strike_price:.2f}")
+                    if sig.expiration_date:
+                        f.write(f", expires {sig.expiration_date}")
+                    f.write("\n")
                 f.write(f"- Conviction: {conviction}\n")
                 f.write(f"- Size: {sig.position_size_pct:.0%} of portfolio\n")
                 f.write(f"- Target: {target}\n")
