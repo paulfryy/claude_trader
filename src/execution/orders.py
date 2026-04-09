@@ -7,6 +7,8 @@ which is essential for a $1000 account.
 import logging
 from datetime import datetime, timedelta
 
+from alpaca.data.historical.option import OptionHistoricalDataClient
+from alpaca.data.requests import OptionLatestQuoteRequest
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import ContractType, OrderSide, TimeInForce
 from alpaca.trading.requests import (
@@ -32,6 +34,27 @@ class OrderExecutor:
             secret_key=settings.alpaca.secret_key,
             paper=settings.is_paper,
         )
+        self._option_data_client = OptionHistoricalDataClient(
+            api_key=settings.alpaca.api_key,
+            secret_key=settings.alpaca.secret_key,
+        )
+
+    def get_option_premium(self, occ_symbol: str) -> float | None:
+        """
+        Get the current ask premium for an options contract.
+        Returns the per-share premium (multiply by 100 for total cost per contract).
+        """
+        try:
+            req = OptionLatestQuoteRequest(symbol_or_symbols=occ_symbol)
+            quotes = self._option_data_client.get_option_latest_quote(req)
+            quote = quotes.get(occ_symbol)
+            if not quote:
+                return None
+            # Use ask price (what we'd pay to buy)
+            return float(quote.ask_price) if quote.ask_price else None
+        except Exception as e:
+            logger.warning("Failed to fetch option premium for %s: %s", occ_symbol, e)
+            return None
 
     def execute_equity_signal(
         self,

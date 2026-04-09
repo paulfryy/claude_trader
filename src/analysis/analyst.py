@@ -133,6 +133,14 @@ OPTIONS STRATEGY (Level 3 approved — you CAN trade options):
 - Prefer options with 2-4 weeks to expiry and strikes near the money (within 5% of current price)
 - Each options position: 5-10% of portfolio (the premium IS your max loss)
 
+OPTIONS PRICING AND SIZING (CRITICAL):
+- Options contracts represent 100 shares. A contract quoted at $5 premium costs $500 total ($5 × 100).
+- On-the-money (ATM) options for liquid stocks typically cost 1-3% of the underlying price. Example: NVDA at $180 → ATM calls roughly $2-6 premium = $200-600 per contract.
+- The system will automatically size the number of contracts based on your position_size_pct and the live premium quote.
+- If the premium is too high to afford even 1 contract at your size, the trade will be skipped.
+- For small accounts, consider: slightly OTM options (cheaper), longer dated for lower time decay risk, or avoid expensive stocks where even 1 contract exceeds your sizing.
+- Set position_size_pct that would allow AT LEAST 1 contract — for a $2500 account, 5-10% ($125-250) works for most liquid options.
+
 RESPONSE FORMAT:
 You must respond with valid JSON matching this schema:
 {{

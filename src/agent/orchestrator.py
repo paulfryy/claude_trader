@@ -430,11 +430,9 @@ def run_analysis_cycle(
         )
 
         if is_options:
-            # Options: calculate contracts (can't do fractional)
-            # Use the position allocation as the premium budget
+            # Options: calculate contracts based on REAL premium (price * 100 per contract)
             premium_budget = portfolio_state["equity"] * size_pct
-            # Estimate 1 contract cost (we don't have real options chain data yet)
-            # For now, skip if no strike/expiry — Claude needs to provide these
+
             if not signal.strike_price or not signal.expiration_date:
                 logger.warning(
                     "Options signal for %s missing strike/expiry, skipping",
@@ -442,34 +440,60 @@ def run_analysis_cycle(
                 )
                 continue
 
+            # Look up the real contract and its current premium
+            contract_type = "call" if "call" in signal.action.value else "put"
+            occ_symbol = executor._find_option_contract(
+                underlying=signal.symbol,
+                strike=signal.strike_price,
+                expiration=signal.expiration_date,
+                contract_type=contract_type,
+            )
+            if not occ_symbol:
+                logger.warning("No matching option contract for %s, skipping", signal.symbol)
+                continue
+
+            premium_per_share = executor.get_option_premium(occ_symbol)
+            if not premium_per_share or premium_per_share <= 0:
+                logger.warning("Could not fetch premium for %s, skipping", occ_symbol)
+                continue
+
+            # Each contract = 100 shares, so cost = premium * 100
+            cost_per_contract = premium_per_share * 100
+            contracts = int(premium_budget // cost_per_contract)
+
+            logger.info(
+                "Options sizing %s: premium=$%.2f (cost/contract=$%.2f), budget=$%.2f -> %d contracts",
+                occ_symbol, premium_per_share, cost_per_contract, premium_budget, contracts,
+            )
+
+            if contracts <= 0:
+                logger.warning(
+                    "Cannot afford even 1 contract of %s: cost=$%.2f > budget=$%.2f, skipping",
+                    occ_symbol, cost_per_contract, premium_budget,
+                )
+                continue
+
+            total_cost = contracts * cost_per_contract
+
             if dry_run:
                 logger.info(
-                    "[DRY RUN] Would execute: %s %s option on %s, strike=$%.2f, exp=%s, budget=$%.2f",
-                    signal.action.value, signal.option_type or "?",
-                    signal.symbol, signal.strike_price, signal.expiration_date, premium_budget,
+                    "[DRY RUN] Would execute: %s %d contracts of %s @ $%.2f = $%.2f total",
+                    signal.action.value, contracts, occ_symbol, premium_per_share, total_cost,
                 )
                 result = {
                     "status": "dry_run",
                     "symbol": signal.symbol,
+                    "occ_symbol": occ_symbol,
                     "side": signal.action.value,
-                    "notional": premium_budget,
+                    "contracts": contracts,
+                    "premium": premium_per_share,
+                    "total_cost": total_cost,
                     "strike": signal.strike_price,
                     "expiration": signal.expiration_date,
                 }
                 execution_results.append(result)
             else:
                 try:
-                    # Estimate 1 contract at ~$2-5 premium = $200-500 per contract
-                    # With $80-150 budget on a $1000 account, usually 0-1 contracts
-                    contracts = calculate_options_contracts(
-                        signal, portfolio_state["equity"],
-                        premium_per_contract=premium_budget,  # 1 contract = full budget
-                        position_size_pct=size_pct,
-                    )
-                    if contracts <= 0:
-                        logger.warning("Cannot afford options contract for %s, skipping", signal.symbol)
-                        continue
-
                     result = executor.execute_options_signal(signal, contracts)
                     execution_results.append(result)
                 except Exception as e:
@@ -536,10 +560,15 @@ def run_analysis_cycle(
         # Track exposure added this cycle for subsequent risk checks
         # (applies to both equity and options buys)
         if is_buy and result.get("status") in ("submitted", "dry_run"):
-            cycle_added_exposure_pct += size_pct
             if is_options:
-                # Track options exposure in dollar terms for the risk check
-                cycle_added_options_value += portfolio_state["equity"] * size_pct
+                # Use the REAL total cost of the options trade
+                actual_cost = result.get("total_cost", 0)
+                if not actual_cost and result.get("contracts") and result.get("premium"):
+                    actual_cost = result["contracts"] * result["premium"] * 100
+                cycle_added_exposure_pct += actual_cost / portfolio_state["equity"] if portfolio_state["equity"] > 0 else 0
+                cycle_added_options_value += actual_cost
+            else:
+                cycle_added_exposure_pct += size_pct
 
         # Log the trade
         trade_journal.log_trade(
