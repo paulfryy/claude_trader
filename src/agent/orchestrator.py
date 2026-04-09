@@ -311,6 +311,13 @@ def run_analysis_cycle(
 
     # Step 6: Close positions Claude wants to exit (allowed in ALL cycle modes)
     execution_results = []
+    cycle_freed_exposure_pct = 0.0  # Track exposure freed by closes for subsequent buys
+    cycle_freed_options_value = 0.0
+
+    # Build a lookup of position symbol -> market_value for exposure tracking
+    position_values = {p["symbol"]: abs(p["market_value"]) for p in positions}
+    equity = portfolio_state.get("equity", 1.0) or 1.0
+
     for symbol in analysis.positions_to_close:
         # PDT protection: don't sell anything we bought today
         bought_today = _was_bought_today(symbol, positions)
@@ -322,16 +329,27 @@ def run_analysis_cycle(
             )
             continue
 
+        closed_value = position_values.get(symbol, 0)
+
         if dry_run:
-            logger.info("[DRY RUN] Would close position: %s", symbol)
+            logger.info("[DRY RUN] Would close position: %s (frees ~$%.2f)", symbol, closed_value)
             execution_results.append({"status": "dry_run", "symbol": symbol, "action": "close"})
+            cycle_freed_exposure_pct += closed_value / equity
         else:
             try:
                 # Cancel any stop orders first — they hold shares and block the close
                 executor._cancel_existing_stops(symbol)
                 result = executor.close_position(symbol)
                 execution_results.append(result)
-                logger.info("Closing position: %s → %s", symbol, result["status"])
+                logger.info(
+                    "Closing position: %s → %s (frees ~$%.2f)",
+                    symbol, result["status"], closed_value,
+                )
+                if result.get("status") == "closed":
+                    cycle_freed_exposure_pct += closed_value / equity
+                    # Check if it was an options position (long symbol = OCC)
+                    if len(symbol) > 10:
+                        cycle_freed_options_value += closed_value
             except Exception as e:
                 logger.error("Failed to close position %s: %s", symbol, e)
                 execution_results.append({"status": "error", "symbol": symbol, "error": str(e)})
@@ -384,8 +402,9 @@ def run_analysis_cycle(
 
         # Sell signals: close the position directly (don't go through sizing)
         if is_sell and signal.action == TradeAction.SELL:
+            closed_value = position_values.get(signal.symbol, 0)
             if dry_run:
-                logger.info("[DRY RUN] Would close position: %s", signal.symbol)
+                logger.info("[DRY RUN] Would close position: %s (frees ~$%.2f)", signal.symbol, closed_value)
                 result = {"status": "dry_run", "symbol": signal.symbol, "action": "close"}
             else:
                 # Cancel any existing stop orders first
@@ -396,14 +415,31 @@ def run_analysis_cycle(
                 signal=signal, execution_result=result,
                 portfolio_state=portfolio_state,
             )
+            # Track freed exposure so later buys in this cycle can use the freed room
+            if result.get("status") in ("closed", "dry_run"):
+                cycle_freed_exposure_pct += closed_value / equity
+                if len(signal.symbol) > 10:
+                    cycle_freed_options_value += closed_value
             logger.info("Sell signal: %s -> %s", signal.symbol, result.get("status"))
             continue
 
-        # Risk check — use updated state that reflects trades already made this cycle
+        # Risk check — use updated state reflecting:
+        #   - closes already made this cycle (frees exposure)
+        #   - trades already executed this cycle (adds exposure)
+        net_exposure = (
+            portfolio_state.get("exposure_pct", 0)
+            - cycle_freed_exposure_pct
+            + cycle_added_exposure_pct
+        )
+        net_options = (
+            portfolio_state.get("options_exposure", 0)
+            - cycle_freed_options_value
+            + cycle_added_options_value
+        )
         live_state = {
             **portfolio_state,
-            "exposure_pct": portfolio_state.get("exposure_pct", 0) + cycle_added_exposure_pct,
-            "options_exposure": portfolio_state.get("options_exposure", 0) + cycle_added_options_value,
+            "exposure_pct": max(0.0, net_exposure),
+            "options_exposure": max(0.0, net_options),
         }
         risk_result = risk_manager.validate_signal(signal, live_state)
 

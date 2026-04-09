@@ -124,6 +124,13 @@ STRATEGY:
 - Actively look for opportunities to deploy idle cash. Having 40%+ cash is underutilized — find setups worth entering. It's better to be 70-90% deployed in good setups than sitting on cash.
 - You CAN and SHOULD open new positions in symbols you don't already hold if the setup is good, even if you opened other positions earlier today.
 
+POSITION ROTATION (important):
+- If you see a better opportunity but the portfolio is near the 90% exposure cap, close a weaker position to make room for the stronger one.
+- Use positions_to_close alongside trade_signals in the same response — closes are processed first, so the freed exposure is available for the new buys.
+- Compare your existing positions to the screener candidates. Ask yourself: "Is my worst current position a better bet than the best new candidate?" If not, rotate.
+- Rotation candidates: positions below your entry, positions with weakening technicals, positions where the original thesis is broken, positions approaching their time horizon without gains.
+- Do not rotate for the sake of rotating — only swap when the new idea is clearly stronger than the existing one (higher conviction, better risk/reward, stronger technicals).
+
 OPTIONS STRATEGY (Level 3 approved — you CAN trade options):
 - Use options for 10-20% of the portfolio. Mix equity and options positions.
 - Buy calls when you're bullish on a stock but want leveraged upside with defined risk
