@@ -153,6 +153,19 @@ class RiskManager:
             return RiskCheckResult(approved=True, signal=signal)
 
         current_exposure = state.get("exposure_pct", 0)
+
+        # If already over the cap, reject all new buys outright
+        if current_exposure >= self.risk.max_total_exposure_pct:
+            return RiskCheckResult(
+                approved=False,
+                signal=signal,
+                reason=(
+                    f"Already over-exposed at {current_exposure:.1%} "
+                    f"(cap {self.risk.max_total_exposure_pct:.1%}). "
+                    f"Close positions before adding new ones."
+                ),
+            )
+
         new_exposure = current_exposure + signal.position_size_pct
 
         if new_exposure > self.risk.max_total_exposure_pct:

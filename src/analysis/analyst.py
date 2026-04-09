@@ -112,6 +112,7 @@ class ClaudeAnalyst:
 PORTFOLIO RULES:
 - Max position size: {risk.max_position_pct:.0%} of portfolio
 - Max total exposure: {risk.max_total_exposure_pct:.0%} of portfolio
+- IF current exposure_pct > {risk.max_total_exposure_pct:.0%}: YOUR TOP PRIORITY is to close positions to get back under the cap. Identify the weakest positions (worst R/R, broken thesis, smallest gains, or losses) and add them to positions_to_close. Do NOT propose new buys until exposure is back under the cap. Negative cash = over-leveraged = unacceptable risk.
 - Max options exposure: {risk.max_options_exposure_pct:.0%} of portfolio
 - Default stop-loss: {risk.stop_loss_default_pct:.0%}
 - PDT limit: {risk.max_day_trades} day trades per 5 rolling business days (NEVER propose selling a position that was opened today — this counts as a day trade)
