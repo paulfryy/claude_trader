@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.analysis.signals import MarketAnalysis
-from src.config import DECISION_LOGS_DIR
+from src.config import DECISION_LOGS_DIR, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +17,9 @@ logger = logging.getLogger(__name__)
 class DecisionLog:
     """Records every Claude analysis cycle for review and learning."""
 
-    def __init__(self):
-        DECISION_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    def __init__(self, settings: Settings | None = None):
+        self._dir = settings.decision_logs_dir if settings else DECISION_LOGS_DIR
+        self._dir.mkdir(parents=True, exist_ok=True)
 
     def log_analysis(
         self,
@@ -54,7 +55,7 @@ class DecisionLog:
 
         date_str = datetime.now().strftime("%Y-%m-%d")
         time_str = datetime.now().strftime("%H%M%S")
-        filepath = DECISION_LOGS_DIR / f"{date_str}_{time_str}_analysis.json"
+        filepath = self._dir / f"{date_str}_{time_str}_analysis.json"
 
         with open(filepath, "w") as f:
             json.dump(entry, f, indent=2, default=str)

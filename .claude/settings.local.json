@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "WebFetch(domain:en.wikipedia.org)",
+      "Bash(where python:*)",
+      "Bash(where py:*)",
+      "Bash(rm -f logs/benchmark.json logs/summaries/2026-04-03.md)",
+      "Bash(rm -f logs/decisions/*.json logs/trades/*.json logs/portfolio/*.json logs/errors/*.log)"
+    ]
+  }
+}

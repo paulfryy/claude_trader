@@ -17,10 +17,13 @@ build/
 *.swp
 
 # Logs — JSON data logs are gitignored, but markdown summaries are tracked
-logs/trades/*.json
-logs/decisions/*.json
-logs/portfolio/*.json
-logs/errors/*.log
+# Paper and live logs are in separate directories
+logs/*/trades/*.json
+logs/*/decisions/*.json
+logs/*/portfolio/*.json
+logs/*/errors/*.log
+logs/*/benchmark.json
+logs/*/high_watermark.json
 
 # OS
 .DS_Store

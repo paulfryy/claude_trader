@@ -11,12 +11,41 @@ from pydantic_settings import BaseSettings
 # Project root directory
 PROJECT_ROOT = Path(__file__).parent.parent
 
-# Logs directories
-LOGS_DIR = PROJECT_ROOT / "logs"
-TRADE_LOGS_DIR = LOGS_DIR / "trades"
-DECISION_LOGS_DIR = LOGS_DIR / "decisions"
-PORTFOLIO_LOGS_DIR = LOGS_DIR / "portfolio"
-ERROR_LOGS_DIR = LOGS_DIR / "errors"
+# Base logs directory — paper and live have separate subdirectories
+LOGS_BASE = PROJECT_ROOT / "logs"
+
+
+def get_logs_dir(mode: str = "paper") -> Path:
+    """Get the logs directory for a given trading mode."""
+    return LOGS_BASE / mode
+
+
+def get_trade_logs_dir(mode: str = "paper") -> Path:
+    return get_logs_dir(mode) / "trades"
+
+
+def get_decision_logs_dir(mode: str = "paper") -> Path:
+    return get_logs_dir(mode) / "decisions"
+
+
+def get_portfolio_logs_dir(mode: str = "paper") -> Path:
+    return get_logs_dir(mode) / "portfolio"
+
+
+def get_error_logs_dir(mode: str = "paper") -> Path:
+    return get_logs_dir(mode) / "errors"
+
+
+def get_summary_dir(mode: str = "paper") -> Path:
+    return get_logs_dir(mode) / "summaries"
+
+
+# Legacy constants — point to paper by default for backwards compatibility
+LOGS_DIR = get_logs_dir("paper")
+TRADE_LOGS_DIR = get_trade_logs_dir("paper")
+DECISION_LOGS_DIR = get_decision_logs_dir("paper")
+PORTFOLIO_LOGS_DIR = get_portfolio_logs_dir("paper")
+ERROR_LOGS_DIR = get_error_logs_dir("paper")
 
 
 _ENV_FILE = PROJECT_ROOT / ".env"
@@ -73,6 +102,34 @@ class Settings(BaseSettings):
     @property
     def is_paper(self) -> bool:
         return self.alpaca.trading_mode == "paper"
+
+    @property
+    def trading_mode(self) -> str:
+        return self.alpaca.trading_mode
+
+    @property
+    def logs_dir(self) -> Path:
+        return get_logs_dir(self.trading_mode)
+
+    @property
+    def trade_logs_dir(self) -> Path:
+        return get_trade_logs_dir(self.trading_mode)
+
+    @property
+    def decision_logs_dir(self) -> Path:
+        return get_decision_logs_dir(self.trading_mode)
+
+    @property
+    def portfolio_logs_dir(self) -> Path:
+        return get_portfolio_logs_dir(self.trading_mode)
+
+    @property
+    def error_logs_dir(self) -> Path:
+        return get_error_logs_dir(self.trading_mode)
+
+    @property
+    def summary_dir(self) -> Path:
+        return get_summary_dir(self.trading_mode)
 
 
 def load_settings() -> Settings:

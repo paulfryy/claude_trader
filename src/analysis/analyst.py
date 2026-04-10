@@ -10,7 +10,7 @@ from pathlib import Path
 import anthropic
 
 from src.analysis.signals import MarketAnalysis
-from src.config import LOGS_DIR, Settings
+from src.config import Settings, get_summary_dir
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +269,7 @@ Be decisive but disciplined. Every trade must have a clear rationale and exit pl
         Load today's earlier analysis summaries so Claude has continuity.
         Returns the markdown content of today's summary, or None if no prior cycles.
         """
-        summary_dir = LOGS_DIR / "summaries"
+        summary_dir = get_summary_dir(self.settings.trading_mode)
         today_file = summary_dir / f"{datetime.now().strftime('%Y-%m-%d')}.md"
 
         if not today_file.exists():

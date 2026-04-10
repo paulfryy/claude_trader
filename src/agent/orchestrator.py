@@ -15,7 +15,7 @@ from rich.logging import RichHandler
 
 from src.analysis.analyst import ClaudeAnalyst
 from src.analysis.signals import TradeAction
-from src.config import ERROR_LOGS_DIR, load_settings
+from src.config import load_settings
 from src.data.indicators import add_all_indicators, summarize_indicators
 from src.data.market_data import MarketDataClient
 from src.data.news import NewsDataClient
@@ -125,11 +125,16 @@ def validate_connections(settings) -> bool:
     return True
 
 
+_active_trading_mode = "paper"  # Set by run_analysis_cycle at start
+
+
 def _log_error(error: Exception, context: str = ""):
     """Log an error to the errors directory with full traceback."""
-    ERROR_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    from src.config import get_error_logs_dir
+    error_dir = get_error_logs_dir(_active_trading_mode)
+    error_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    filepath = ERROR_LOGS_DIR / f"{timestamp}_error.log"
+    filepath = error_dir / f"{timestamp}_error.log"
 
     with open(filepath, "w") as f:
         f.write(f"Timestamp: {datetime.now().isoformat()}\n")
@@ -164,6 +169,10 @@ def run_analysis_cycle(
     if settings is None:
         settings = load_settings()
 
+    # Set the active trading mode for error logging
+    global _active_trading_mode
+    _active_trading_mode = settings.trading_mode
+
     # Determine cycle mode
     if mode is None:
         mode = CycleMode.from_time(datetime.now().hour)
@@ -177,8 +186,8 @@ def run_analysis_cycle(
         risk_manager = RiskManager(settings)
         executor = OrderExecutor(settings)
         screener = Screener(settings)
-        trade_journal = TradeJournal()
-        decision_log = DecisionLog()
+        trade_journal = TradeJournal(settings)
+        decision_log = DecisionLog(settings)
     except Exception as e:
         logger.error("Failed to initialize components: %s", e)
         _log_error(e, "Component initialization")
@@ -645,7 +654,7 @@ def run_analysis_cycle(
     spy_quote = spy_data.get("quote", {})
     spy_price = spy_quote.get("ask", 0) or spy_quote.get("bid", 0)
     if spy_price > 0:
-        benchmark = get_benchmark_data(spy_price)
+        benchmark = get_benchmark_data(spy_price, trading_mode=settings.trading_mode)
 
     # Step 10: Write human-readable daily summary
     write_daily_summary(
@@ -654,6 +663,7 @@ def run_analysis_cycle(
         execution_results=execution_results,
         rejected_signals=rejected_signals,
         benchmark=benchmark,
+        trading_mode=settings.trading_mode,
     )
 
     executed = sum(1 for r in execution_results if r.get("status") in ("submitted", "dry_run"))
@@ -678,7 +688,8 @@ def _was_bought_today(symbol: str, positions: list[dict]) -> bool:
     so we check our own trade journal for same-day buys.
     """
     today = datetime.now().strftime("%Y-%m-%d")
-    trade_log_dir = __import__("src.config", fromlist=["TRADE_LOGS_DIR"]).TRADE_LOGS_DIR
+    from src.config import get_trade_logs_dir
+    trade_log_dir = get_trade_logs_dir(_active_trading_mode)
 
     if not trade_log_dir.exists():
         return False

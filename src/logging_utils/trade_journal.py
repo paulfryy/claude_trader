@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.analysis.signals import TradeSignal
-from src.config import TRADE_LOGS_DIR
+from src.config import TRADE_LOGS_DIR, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,9 @@ logger = logging.getLogger(__name__)
 class TradeJournal:
     """Records every trade with entry rationale, execution details, and later — outcome."""
 
-    def __init__(self):
-        TRADE_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    def __init__(self, settings: Settings | None = None):
+        self._dir = settings.trade_logs_dir if settings else TRADE_LOGS_DIR
+        self._dir.mkdir(parents=True, exist_ok=True)
 
     def log_trade(
         self,
@@ -48,7 +49,7 @@ class TradeJournal:
 
         date_str = datetime.now().strftime("%Y-%m-%d")
         time_str = datetime.now().strftime("%H%M%S")
-        filepath = TRADE_LOGS_DIR / f"{date_str}_{signal.symbol}_{signal.action.value}_{time_str}.json"
+        filepath = self._dir / f"{date_str}_{signal.symbol}_{signal.action.value}_{time_str}.json"
 
         with open(filepath, "w") as f:
             json.dump(entry, f, indent=2, default=str)
@@ -77,7 +78,7 @@ class TradeJournal:
 
         date_str = datetime.now().strftime("%Y-%m-%d")
         time_str = datetime.now().strftime("%H%M%S")
-        filepath = TRADE_LOGS_DIR / f"{date_str}_{signal.symbol}_REJECTED_{time_str}.json"
+        filepath = self._dir / f"{date_str}_{signal.symbol}_REJECTED_{time_str}.json"
 
         with open(filepath, "w") as f:
             json.dump(entry, f, indent=2, default=str)

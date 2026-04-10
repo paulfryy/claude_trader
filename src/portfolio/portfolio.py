@@ -11,11 +11,9 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from src.config import LOGS_DIR, PORTFOLIO_LOGS_DIR, Settings
+from src.config import PORTFOLIO_LOGS_DIR, Settings, get_logs_dir
 
 logger = logging.getLogger(__name__)
-
-WATERMARK_FILE = LOGS_DIR / "high_watermark.json"
 
 
 class PortfolioTracker:
@@ -24,6 +22,9 @@ class PortfolioTracker:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._starting_capital = settings.starting_capital
+        self._logs_dir = settings.logs_dir
+        self._portfolio_logs_dir = settings.portfolio_logs_dir
+        self._watermark_file = self._logs_dir / "high_watermark.json"
         self._high_watermark: float = self._load_watermark()
 
     def build_state(self, account_info: dict, positions: list[dict]) -> dict:
@@ -108,10 +109,10 @@ class PortfolioTracker:
 
     def save_snapshot(self, state: dict) -> Path:
         """Save a portfolio snapshot to the logs directory."""
-        PORTFOLIO_LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        self._portfolio_logs_dir.mkdir(parents=True, exist_ok=True)
         date_str = datetime.now().strftime("%Y-%m-%d")
         time_str = datetime.now().strftime("%H%M%S")
-        filepath = PORTFOLIO_LOGS_DIR / f"{date_str}_{time_str}.json"
+        filepath = self._portfolio_logs_dir / f"{date_str}_{time_str}.json"
 
         with open(filepath, "w") as f:
             json.dump(state, f, indent=2, default=str)
@@ -122,9 +123,9 @@ class PortfolioTracker:
 
     def _load_watermark(self) -> float:
         """Load high watermark from disk, or use starting capital if none exists."""
-        if WATERMARK_FILE.exists():
+        if self._watermark_file.exists():
             try:
-                with open(WATERMARK_FILE) as f:
+                with open(self._watermark_file) as f:
                     data = json.load(f)
                 saved = data.get("high_watermark", self._starting_capital)
                 logger.info("Loaded high watermark: $%.2f", saved)
@@ -135,8 +136,8 @@ class PortfolioTracker:
 
     def _save_watermark(self):
         """Persist high watermark to disk."""
-        WATERMARK_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(WATERMARK_FILE, "w") as f:
+        self._watermark_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._watermark_file, "w") as f:
             json.dump({
                 "high_watermark": self._high_watermark,
                 "updated_at": datetime.now().isoformat(),

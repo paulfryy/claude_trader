@@ -9,11 +9,9 @@ from datetime import datetime
 from pathlib import Path
 
 from src.analysis.signals import MarketAnalysis
-from src.config import LOGS_DIR
+from src.config import LOGS_DIR, get_summary_dir
 
 logger = logging.getLogger(__name__)
-
-SUMMARY_DIR = LOGS_DIR / "summaries"
 
 
 def write_daily_summary(
@@ -22,14 +20,16 @@ def write_daily_summary(
     execution_results: list[dict],
     rejected_signals: list[dict],
     benchmark: dict | None = None,
+    trading_mode: str = "paper",
 ) -> Path:
     """
     Write a human-readable markdown summary for this analysis cycle.
     Appends to the day's summary file so multiple cycles build up a full picture.
     """
-    SUMMARY_DIR.mkdir(parents=True, exist_ok=True)
+    summary_dir = get_summary_dir(trading_mode)
+    summary_dir.mkdir(parents=True, exist_ok=True)
     date_str = datetime.now().strftime("%Y-%m-%d")
-    filepath = SUMMARY_DIR / f"{date_str}.md"
+    filepath = summary_dir / f"{date_str}.md"
 
     timestamp = datetime.now().strftime("%H:%M:%S ET")
     is_new_file = not filepath.exists()
