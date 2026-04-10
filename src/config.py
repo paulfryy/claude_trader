@@ -90,6 +90,7 @@ class RiskSettings(BaseSettings):
     max_drawdown_pct: float = Field(default=0.15, description="Halt if portfolio drops this %")
     stop_loss_default_pct: float = Field(default=0.08, description="Default stop-loss %")
     max_day_trades: int = Field(default=3, description="PDT limit per 5 rolling business days")
+    max_new_positions_per_day: int = Field(default=3, description="Max new positions opened per day — ensures every position gets a stop-loss")
 
 
 class Settings(BaseSettings):

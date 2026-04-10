@@ -373,6 +373,22 @@ def run_analysis_cycle(
     cycle_added_exposure_pct = 0.0
     cycle_added_options_value = 0.0
 
+    # Count new positions opened today (from trade journal + this cycle)
+    # PDT constraint: each new buy needs a stop-loss, which counts as a day trade
+    max_new_per_day = settings.risk.max_new_positions_per_day
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_buys = len(list(settings.trade_logs_dir.glob(f"{today_str}_*_buy_*.json")))
+    today_buys += len(list(settings.trade_logs_dir.glob(f"{today_str}_*_buy_call_*.json")))
+    today_buys += len(list(settings.trade_logs_dir.glob(f"{today_str}_*_buy_put_*.json")))
+    new_buys_this_cycle = 0
+    remaining_slots = max(0, max_new_per_day - today_buys)
+
+    if remaining_slots < max_new_per_day:
+        logger.info(
+            "Daily position limit: %d/%d used today, %d slots remaining",
+            today_buys, max_new_per_day, remaining_slots,
+        )
+
     # In closing mode, block all new entries — analysis only
     allow_new_entries = mode != CycleMode.CLOSING
 
@@ -432,6 +448,14 @@ def run_analysis_cycle(
                 if len(signal.symbol) > 10:
                     cycle_freed_options_value += closed_value
             logger.info("Sell signal: %s -> %s", signal.symbol, result.get("status"))
+            continue
+
+        # Daily position limit — hard enforcement
+        if is_buy and (remaining_slots - new_buys_this_cycle) <= 0:
+            reason = f"Daily position limit reached ({max_new_per_day}/{max_new_per_day}). Signal ranked below today's top picks."
+            logger.info("LIMIT: Skipping %s %s — %s", signal.action.value, signal.symbol, reason)
+            rejected_signals.append({"symbol": signal.symbol, "reason": reason})
+            trade_journal.log_rejection(signal, reason, portfolio_state)
             continue
 
         # Risk check — use updated state reflecting:
@@ -627,8 +651,10 @@ def run_analysis_cycle(
                     actual_cost = result["contracts"] * result["premium"] * 100
                 cycle_added_exposure_pct += actual_cost / portfolio_state["equity"] if portfolio_state["equity"] > 0 else 0
                 cycle_added_options_value += actual_cost
+                new_buys_this_cycle += 1
             else:
                 cycle_added_exposure_pct += size_pct
+                new_buys_this_cycle += 1
 
         # Log the trade
         trade_journal.log_trade(
