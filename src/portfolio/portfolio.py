@@ -31,31 +31,34 @@ class PortfolioTracker:
         """
         Build a complete portfolio state snapshot.
 
-        Uses virtual equity based on starting_capital + unrealized P&L from
-        our positions. This way the agent sizes trades based on $1000, not
-        the paper account's $100k.
+        Live mode: uses real Alpaca account equity directly.
+        Paper mode: uses virtual equity (starting_capital + P&L) to simulate
+        a smaller account on the $100k paper balance.
         """
         # Calculate position values
         total_position_value = sum(abs(p["market_value"]) for p in positions)
         total_unrealized_pl = sum(p["unrealized_pl"] for p in positions)
 
-        # Virtual equity = starting capital + P&L from our trades
-        # This is what the agent uses for all sizing and risk decisions
-        virtual_equity = self._starting_capital + total_unrealized_pl
+        if self.settings.is_paper:
+            # Paper: virtual equity model — simulate smaller account
+            equity = self._starting_capital + total_unrealized_pl
+            cash = equity - total_position_value
+        else:
+            # Live: use real Alpaca numbers
+            equity = account_info["equity"]
+            cash = account_info["cash"]
 
-        # Guard: if virtual equity is zero or negative, force max exposure
+        # Guard: if equity is zero or negative, force max exposure
         # to trigger the drawdown circuit breaker and halt all new trades
-        if virtual_equity <= 0:
+        if equity <= 0:
             logger.error(
-                "VIRTUAL EQUITY IS <= 0 ($%.2f). All new trades will be blocked.",
-                virtual_equity,
+                "EQUITY IS <= 0 ($%.2f). All new trades will be blocked.",
+                equity,
             )
-            virtual_equity = max(virtual_equity, 1.0)  # Prevent division by zero
+            equity = max(equity, 1.0)  # Prevent division by zero
             exposure_pct = 1.0  # Force circuit breaker
         else:
-            exposure_pct = total_position_value / virtual_equity
-
-        virtual_cash = virtual_equity - total_position_value
+            exposure_pct = total_position_value / equity
 
         # Options vs equity exposure
         options_value = sum(
@@ -65,16 +68,16 @@ class PortfolioTracker:
         equity_value = total_position_value - options_value
 
         # P&L
-        total_return_pct = (virtual_equity - self._starting_capital) / self._starting_capital
+        total_return_pct = (equity - self._starting_capital) / self._starting_capital
 
         # Update high watermark (persisted to disk so it survives restarts)
-        if virtual_equity > self._high_watermark:
-            self._high_watermark = virtual_equity
+        if equity > self._high_watermark:
+            self._high_watermark = equity
             self._save_watermark()
 
         # Drawdown from peak
         drawdown_pct = (
-            (self._high_watermark - virtual_equity) / self._high_watermark
+            (self._high_watermark - equity) / self._high_watermark
             if self._high_watermark > 0
             else 0
         )
@@ -82,8 +85,8 @@ class PortfolioTracker:
         state = {
             "timestamp": datetime.now().isoformat(),
             # Virtual equity — what the agent uses for decisions
-            "equity": virtual_equity,
-            "cash": virtual_cash,
+            "equity": equity,
+            "cash": cash,
             "starting_capital": self._starting_capital,
             "total_return_pct": total_return_pct,
             # Positions and exposure
