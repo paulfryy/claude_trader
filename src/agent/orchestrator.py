@@ -512,10 +512,10 @@ def run_analysis_cycle(
             )
 
             if contracts <= 0:
-                logger.warning(
-                    "Cannot afford even 1 contract of %s: cost=$%.2f > budget=$%.2f, skipping",
-                    occ_symbol, cost_per_contract, premium_budget,
-                )
+                reason = f"Cannot afford options contract {occ_symbol}: cost=${cost_per_contract:.2f} > budget=${premium_budget:.2f}"
+                logger.warning(reason)
+                rejected_signals.append({"symbol": signal.symbol, "reason": reason})
+                trade_journal.log_rejection(signal, reason, portfolio_state)
                 continue
 
             total_cost = contracts * cost_per_contract
@@ -648,7 +648,15 @@ def run_analysis_cycle(
         execution_results=execution_results,
     )
 
-    # Step 9: Get benchmark data (SPY)
+    # Step 9: Re-fetch portfolio state after trades for accurate summary
+    try:
+        post_account = market_data.get_account()
+        post_positions = market_data.get_positions()
+        post_state = portfolio_tracker.build_state(post_account, post_positions)
+    except Exception:
+        post_state = portfolio_state  # Fall back to pre-trade state
+
+    # Step 10: Get benchmark data (SPY)
     benchmark = None
     spy_data = watchlist_data.get("SPY", {})
     spy_quote = spy_data.get("quote", {})
@@ -656,10 +664,10 @@ def run_analysis_cycle(
     if spy_price > 0:
         benchmark = get_benchmark_data(spy_price, trading_mode=settings.trading_mode)
 
-    # Step 10: Write human-readable daily summary
+    # Step 11: Write human-readable daily summary (uses post-trade state)
     write_daily_summary(
         analysis=analysis,
-        portfolio_state=portfolio_state,
+        portfolio_state=post_state,
         execution_results=execution_results,
         rejected_signals=rejected_signals,
         benchmark=benchmark,
