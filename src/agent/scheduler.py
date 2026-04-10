@@ -64,8 +64,12 @@ def start_scheduler():
     from dotenv import load_dotenv
     from src.agent.orchestrator import _get_env_file
 
-    load_dotenv()
     env_file = _get_env_file()
+    if env_file:
+        # Load the specified env file, not the default .env
+        load_dotenv(env_file, override=True)
+    else:
+        load_dotenv()
     settings = load_settings(env_file=env_file)
     setup_logging(settings.log_level)
 
