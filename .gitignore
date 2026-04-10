@@ -1,5 +1,7 @@
 # Environment
 .env
+.env.paper
+.env.live
 .venv/
 venv/
 env/

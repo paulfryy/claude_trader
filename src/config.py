@@ -51,6 +51,9 @@ ERROR_LOGS_DIR = get_error_logs_dir("paper")
 _ENV_FILE = PROJECT_ROOT / ".env"
 _ENV_COMMON = {"env_file": _ENV_FILE, "env_file_encoding": "utf-8", "extra": "ignore"}
 
+# Can be overridden by load_settings(env_file=...) for paper/live separation
+_active_env_file = _ENV_FILE
+
 
 class AlpacaSettings(BaseSettings):
     model_config = {**_ENV_COMMON, "env_prefix": "ALPACA_"}
@@ -132,6 +135,41 @@ class Settings(BaseSettings):
         return get_summary_dir(self.trading_mode)
 
 
-def load_settings() -> Settings:
-    """Load and return application settings."""
+def load_settings(env_file: str | Path | None = None) -> Settings:
+    """
+    Load and return application settings.
+
+    Args:
+        env_file: Path to .env file. If None, uses default .env.
+                  Use .env.paper or .env.live for simultaneous operation.
+    """
+    if env_file is not None:
+        env_path = Path(env_file) if not isinstance(env_file, Path) else env_file
+        if not env_path.is_absolute():
+            env_path = PROJECT_ROOT / env_path
+
+        # Override the env file for all sub-settings
+        global _active_env_file
+        _active_env_file = env_path
+
+        # Reload settings classes with the new env file
+        common = {"env_file": env_path, "env_file_encoding": "utf-8", "extra": "ignore"}
+
+        class _Alpaca(AlpacaSettings):
+            model_config = {**common, "env_prefix": "ALPACA_"}
+
+        class _Claude(ClaudeSettings):
+            model_config = {**common, "env_prefix": ""}
+
+        class _Risk(RiskSettings):
+            model_config = {**common, "env_prefix": ""}
+
+        class _Settings(Settings):
+            model_config = {**common}
+            alpaca: AlpacaSettings = Field(default_factory=_Alpaca)
+            claude: ClaudeSettings = Field(default_factory=_Claude)
+            risk: RiskSettings = Field(default_factory=_Risk)
+
+        return _Settings()
+
     return Settings()

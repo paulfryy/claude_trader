@@ -704,10 +704,21 @@ def _was_bought_today(symbol: str, positions: list[dict]) -> bool:
     return False
 
 
+def _get_env_file() -> str | None:
+    """Parse --env flag from sys.argv."""
+    for i, arg in enumerate(sys.argv):
+        if arg == "--env" and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+        if arg.startswith("--env="):
+            return arg.split("=", 1)[1]
+    return None
+
+
 def main():
     """Entry point for the trading agent."""
     load_dotenv()
-    settings = load_settings()
+    env_file = _get_env_file()
+    settings = load_settings(env_file=env_file)
     setup_logging(settings.log_level)
 
     console.print("[bold green]Claude Trading Agent[/bold green]")

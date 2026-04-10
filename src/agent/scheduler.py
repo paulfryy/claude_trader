@@ -60,10 +60,13 @@ def _safe_run_cycle(settings, mode: str):
 
 def start_scheduler():
     """Start the trading agent on a schedule."""
+    import sys
     from dotenv import load_dotenv
+    from src.agent.orchestrator import _get_env_file
 
     load_dotenv()
-    settings = load_settings()
+    env_file = _get_env_file()
+    settings = load_settings(env_file=env_file)
     setup_logging(settings.log_level)
 
     console.print("[bold green]Claude Trading Agent — Scheduler[/bold green]")
