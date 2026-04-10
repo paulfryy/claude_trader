@@ -19,6 +19,7 @@ from src.config import load_settings
 from src.data.indicators import add_all_indicators, summarize_indicators
 from src.data.market_data import MarketDataClient
 from src.data.news import NewsDataClient
+from src.data.options_chain import OptionsChainClient
 from src.data.screener import Screener
 from src.execution.orders import OrderExecutor
 from src.logging_utils.benchmark import get_benchmark_data
@@ -185,6 +186,7 @@ def run_analysis_cycle(
         portfolio_tracker = PortfolioTracker(settings)
         risk_manager = RiskManager(settings)
         executor = OrderExecutor(settings)
+        options_chain = OptionsChainClient(settings)
         screener = Screener(settings)
         trade_journal = TradeJournal(settings)
         decision_log = DecisionLog(settings)
@@ -475,55 +477,64 @@ def run_analysis_cycle(
         )
 
         if is_options:
-            # Options: calculate contracts based on REAL premium (price * 100 per contract)
+            # Options: two-step flow
+            # 1. Fetch the real options chain
+            # 2. Let Claude pick the best contract from what's available
             premium_budget = portfolio_state["equity"] * size_pct
-
-            if not signal.strike_price or not signal.expiration_date:
-                logger.warning(
-                    "Options signal for %s missing strike/expiry, skipping",
-                    signal.symbol,
-                )
-                continue
-
-            # Look up the real contract and its current premium
             contract_type = "call" if "call" in signal.action.value else "put"
-            occ_symbol = executor._find_option_contract(
-                underlying=signal.symbol,
-                strike=signal.strike_price,
-                expiration=signal.expiration_date,
-                contract_type=contract_type,
-            )
-            if not occ_symbol:
-                logger.warning("No matching option contract for %s, skipping", signal.symbol)
-                continue
 
-            premium_per_share = executor.get_option_premium(occ_symbol)
-            if not premium_per_share or premium_per_share <= 0:
-                logger.warning("Could not fetch premium for %s, skipping", occ_symbol)
-                continue
-
-            # Each contract = 100 shares, so cost = premium * 100
-            cost_per_contract = premium_per_share * 100
-            contracts = int(premium_budget // cost_per_contract)
-
-            logger.info(
-                "Options sizing %s: premium=$%.2f (cost/contract=$%.2f), budget=$%.2f -> %d contracts",
-                occ_symbol, premium_per_share, cost_per_contract, premium_budget, contracts,
+            # Fetch the options chain
+            chain = options_chain.get_chain_for_analysis(
+                symbol=signal.symbol,
+                option_type=contract_type,
+                current_price=current_price,
+                budget=premium_budget,
             )
 
-            if contracts <= 0:
-                reason = f"Cannot afford options contract {occ_symbol}: cost=${cost_per_contract:.2f} > budget=${premium_budget:.2f}"
+            if not chain:
+                logger.warning("No options chain available for %s, skipping", signal.symbol)
+                continue
+
+            affordable_count = sum(1 for c in chain if c["affordable"])
+            if affordable_count == 0:
+                reason = f"No affordable {contract_type} contracts for {signal.symbol} within ${premium_budget:.2f} budget"
                 logger.warning(reason)
                 rejected_signals.append({"symbol": signal.symbol, "reason": reason})
                 trade_journal.log_rejection(signal, reason, portfolio_state)
                 continue
 
+            # Let Claude pick the best contract
+            selected = analyst.select_option_contract(
+                symbol=signal.symbol,
+                option_type=contract_type,
+                chain=chain,
+                original_rationale=signal.rationale,
+                budget=premium_budget,
+            )
+
+            if not selected:
+                reason = f"Claude declined — no suitable {contract_type} contract for thesis"
+                logger.info(reason)
+                rejected_signals.append({"symbol": signal.symbol, "reason": reason})
+                continue
+
+            occ_symbol = selected["occ_symbol"]
+            cost_per_contract = selected["cost_per_contract"]
+            contracts = int(premium_budget // cost_per_contract)
+            if contracts <= 0:
+                contracts = 1  # We already verified it's affordable
             total_cost = contracts * cost_per_contract
+
+            logger.info(
+                "Options: Claude selected %s (strike=$%.2f, exp=%s) — %d contracts @ $%.2f = $%.2f",
+                occ_symbol, selected["strike"], selected["expiration"],
+                contracts, cost_per_contract, total_cost,
+            )
 
             if dry_run:
                 logger.info(
-                    "[DRY RUN] Would execute: %s %d contracts of %s @ $%.2f = $%.2f total",
-                    signal.action.value, contracts, occ_symbol, premium_per_share, total_cost,
+                    "[DRY RUN] Would execute: %s %d contracts of %s @ $%.2f/contract = $%.2f total",
+                    signal.action.value, contracts, occ_symbol, cost_per_contract, total_cost,
                 )
                 result = {
                     "status": "dry_run",
@@ -531,14 +542,18 @@ def run_analysis_cycle(
                     "occ_symbol": occ_symbol,
                     "side": signal.action.value,
                     "contracts": contracts,
-                    "premium": premium_per_share,
+                    "cost_per_contract": cost_per_contract,
                     "total_cost": total_cost,
-                    "strike": signal.strike_price,
-                    "expiration": signal.expiration_date,
+                    "strike": selected["strike"],
+                    "expiration": selected["expiration"],
+                    "selection_rationale": selected.get("selection_rationale", ""),
                 }
                 execution_results.append(result)
             else:
                 try:
+                    # Update signal with Claude's selected contract details
+                    signal.strike_price = selected["strike"]
+                    signal.expiration_date = selected["expiration"]
                     result = executor.execute_options_signal(signal, contracts)
                     execution_results.append(result)
                 except Exception as e:

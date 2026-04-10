@@ -264,6 +264,115 @@ Be decisive but disciplined. Every trade must have a clear rationale and exit pl
 
         return "\n".join(sections)
 
+    def select_option_contract(
+        self,
+        symbol: str,
+        option_type: str,
+        chain: list[dict],
+        original_rationale: str,
+        budget: float,
+    ) -> dict | None:
+        """
+        Ask Claude to select the best option contract from a chain.
+
+        Args:
+            symbol: Underlying symbol
+            option_type: "call" or "put"
+            chain: List of contract dicts from OptionsChainClient
+            original_rationale: Claude's original trade rationale
+            budget: Dollar budget for this trade
+
+        Returns:
+            Dict with selected contract details, or None if no good option found.
+        """
+        if not chain:
+            return None
+
+        affordable = [c for c in chain if c["affordable"]]
+        if not affordable:
+            logger.info("No affordable contracts in chain for %s (budget $%.2f)", symbol, budget)
+            return None
+
+        prompt = f"""You proposed a {option_type} option on {symbol}. Here is your original rationale:
+
+"{original_rationale}"
+
+Budget: ${budget:.2f} (max you can spend on this trade)
+
+Below is the real options chain with live quotes. Select the BEST contract considering:
+1. Strike selection must align with your thesis — don't just pick the cheapest
+2. Prefer strikes with good liquidity (tight bid-ask spread)
+3. Balance intrinsic vs time value — pure OTM options are cheaper but riskier
+4. Consider days to expiry — too short = theta decay, too long = expensive
+5. The contract MUST be affordable (cost_per_contract <= ${budget:.2f})
+
+AVAILABLE CONTRACTS (affordable ones marked with *):
+"""
+        for c in chain:
+            marker = "* " if c["affordable"] else "  "
+            prompt += (
+                f"{marker}{c['occ_symbol']}: strike=${c['strike']:.2f}, "
+                f"exp={c['expiration']} ({c['days_to_expiry']}d), "
+                f"bid=${c['bid']:.2f}, ask=${c['ask']:.2f}, "
+                f"cost/contract=${c['cost_per_contract']:.2f}, "
+                f"intrinsic=${c['intrinsic_value']:.2f}, "
+                f"time_value=${c['time_value']:.2f}\n"
+            )
+
+        prompt += """
+Respond with ONLY valid JSON:
+{
+    "selected_symbol": "OCC_SYMBOL_HERE",
+    "strike": 105.00,
+    "expiration": "2026-05-15",
+    "rationale": "Why this specific strike and expiry is best for the thesis. Be specific about why this strike over others."
+}
+
+If none of the affordable contracts are a good fit for your thesis, respond with:
+{"selected_symbol": null, "rationale": "Why no contract works"}
+"""
+
+        try:
+            response = self._client.messages.create(
+                model=self._model,
+                max_tokens=500,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1]
+            if text.endswith("```"):
+                text = text.rsplit("```", 1)[0]
+
+            data = json.loads(text.strip())
+
+            if not data.get("selected_symbol"):
+                logger.info("Claude declined options for %s: %s", symbol, data.get("rationale"))
+                return None
+
+            # Find the selected contract in the chain
+            selected = next((c for c in chain if c["occ_symbol"] == data["selected_symbol"]), None)
+            if not selected:
+                logger.warning("Claude selected unknown contract: %s", data["selected_symbol"])
+                return None
+
+            if not selected["affordable"]:
+                logger.warning("Claude selected unaffordable contract: %s ($%.2f > $%.2f)",
+                    selected["occ_symbol"], selected["cost_per_contract"], budget)
+                return None
+
+            selected["selection_rationale"] = data.get("rationale", "")
+            logger.info(
+                "Claude selected %s (strike=$%.2f, exp=%s, cost=$%.2f): %s",
+                selected["occ_symbol"], selected["strike"], selected["expiration"],
+                selected["cost_per_contract"], data.get("rationale", "")[:100],
+            )
+            return selected
+
+        except Exception as e:
+            logger.error("Option contract selection failed for %s: %s", symbol, e)
+            return None
+
     def _load_prior_context(self) -> str | None:
         """
         Load today's earlier analysis summaries so Claude has continuity.
