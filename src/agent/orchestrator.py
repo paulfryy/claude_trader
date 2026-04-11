@@ -811,10 +811,14 @@ def main():
 
     if not settings.is_paper:
         console.print("[bold red]WARNING: LIVE TRADING MODE — Real money at risk![/bold red]")
-        response = input("Type 'CONFIRM' to proceed: ")
-        if response != "CONFIRM":
-            console.print("Aborted.")
-            sys.exit(0)
+        import os
+        if os.environ.get("SKIP_LIVE_CONFIRM") == "true":
+            console.print("[yellow]SKIP_LIVE_CONFIRM=true — bypassing confirmation[/yellow]")
+        else:
+            response = input("Type 'CONFIRM' to proceed: ")
+            if response != "CONFIRM":
+                console.print("Aborted.")
+                sys.exit(0)
 
     # Check for --dry-run flag
     dry_run = "--dry-run" in sys.argv
