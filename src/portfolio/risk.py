@@ -77,7 +77,9 @@ class RiskManager:
         self, signal: TradeSignal, state: dict
     ) -> RiskCheckResult:
         """Halt all new trades if drawdown exceeds threshold."""
-        if signal.action == TradeAction.SELL:
+        # Always allow exits — must be able to close positions during a drawdown
+        sell_actions = {TradeAction.SELL, TradeAction.SELL_CALL, TradeAction.SELL_PUT}
+        if signal.action in sell_actions:
             return RiskCheckResult(approved=True, signal=signal)
 
         drawdown = state.get("drawdown_pct", 0)

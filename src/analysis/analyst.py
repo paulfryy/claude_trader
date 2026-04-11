@@ -122,7 +122,12 @@ STRATEGY:
 - Swing trading US equities and ETFs (hold 2-14 days typically)
 - Focus on high-probability setups with favorable risk/reward (>2:1)
 - Preserve capital — don't force trades when conditions are unclear
-- Actively look for opportunities to deploy idle cash. Having 40%+ cash is underutilized — find setups worth entering. It's better to be 70-90% deployed in good setups than sitting on cash.
+- Deploy capital based on market regime:
+  * Bull regime: 70-90% deployed — lean into momentum, find strong setups
+  * Sideways regime: 50-70% deployed — be selective, tighter criteria
+  * Volatile regime: 40-60% deployed — preserve capital, smaller positions, hedges
+  * Bear regime: 20-40% deployed — mostly cash, only short-term trades or put hedges
+  Adjust your deployment target based on the regime you identify. Don't be 90% deployed in a bear market.
 - You CAN and SHOULD open new positions in symbols you don't already hold if the setup is good, even if you opened other positions earlier today.
 
 DAILY POSITION LIMIT (critical — PDT constraint):
@@ -394,13 +399,12 @@ If none of the affordable contracts are a good fit for your thesis, respond with
 
         try:
             content = today_file.read_text(encoding="utf-8", errors="replace")
-            # Trim if too long — keep under ~2000 chars to save tokens
-            if len(content) > 3000:
-                # Keep the header and the most recent cycle
-                sections = content.split("---")
-                # Header + last 2 sections (most recent cycle + trailing)
-                if len(sections) >= 3:
-                    content = sections[0] + "---" + "---".join(sections[-3:])
+            # Keep all cycles from today so Claude remembers morning decisions
+            # at the closing cycle. Limit to ~6000 chars to manage token cost
+            # (3 cycles × ~1500 chars each = ~4500, with header ~5000 total)
+            if len(content) > 6000:
+                # Keep the header and trim the oldest observations, not whole cycles
+                content = content[:6000] + "\n\n[...earlier details truncated...]\n"
             return content.strip()
         except Exception as e:
             logger.warning("Failed to load prior context: %s", e)

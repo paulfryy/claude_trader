@@ -324,12 +324,18 @@ def run_analysis_cycle(
     execution_results = []
     cycle_freed_exposure_pct = 0.0  # Track exposure freed by closes for subsequent buys
     cycle_freed_options_value = 0.0
+    closed_this_cycle = set()  # Track symbols already closed to prevent duplicates
 
     # Build a lookup of position symbol -> market_value for exposure tracking
     position_values = {p["symbol"]: abs(p["market_value"]) for p in positions}
     equity = portfolio_state.get("equity", 1.0) or 1.0
 
     for symbol in analysis.positions_to_close:
+        # Skip if already closed this cycle
+        if symbol in closed_this_cycle:
+            logger.debug("Already closed %s this cycle, skipping duplicate", symbol)
+            continue
+
         # PDT protection: don't sell anything we bought today
         bought_today = _was_bought_today(symbol, positions)
         if bought_today:
@@ -357,6 +363,7 @@ def run_analysis_cycle(
                     symbol, result["status"], closed_value,
                 )
                 if result.get("status") == "closed":
+                    closed_this_cycle.add(symbol)
                     cycle_freed_exposure_pct += closed_value / equity
                     # Check if it was an options position (long symbol = OCC)
                     if len(symbol) > 10:
@@ -429,6 +436,9 @@ def run_analysis_cycle(
 
         # Sell signals: close the position directly (don't go through sizing)
         if is_sell and signal.action == TradeAction.SELL:
+            if signal.symbol in closed_this_cycle:
+                logger.debug("Already closed %s this cycle, skipping duplicate sell signal", signal.symbol)
+                continue
             closed_value = position_values.get(signal.symbol, 0)
             if dry_run:
                 logger.info("[DRY RUN] Would close position: %s (frees ~$%.2f)", signal.symbol, closed_value)
@@ -444,6 +454,7 @@ def run_analysis_cycle(
             )
             # Track freed exposure so later buys in this cycle can use the freed room
             if result.get("status") in ("closed", "dry_run"):
+                closed_this_cycle.add(signal.symbol)
                 cycle_freed_exposure_pct += closed_value / equity
                 if len(signal.symbol) > 10:
                     cycle_freed_options_value += closed_value
@@ -492,6 +503,17 @@ def run_analysis_cycle(
 
         if current_price <= 0:
             logger.warning("No price available for %s, skipping", signal.symbol)
+            continue
+
+        # Validate stop-loss is below current price for buys (not above — that would trigger instantly)
+        if is_buy and signal.stop_loss_price and signal.stop_loss_price >= current_price:
+            reason = (
+                f"Stop-loss ${signal.stop_loss_price:.2f} is >= current price ${current_price:.2f}. "
+                f"This would trigger immediately. Rejecting."
+            )
+            logger.warning("BAD STOP: %s %s — %s", signal.action.value, signal.symbol, reason)
+            rejected_signals.append({"symbol": signal.symbol, "reason": reason})
+            trade_journal.log_rejection(signal, reason, portfolio_state)
             continue
 
         # Determine if this is an options or equity trade
@@ -623,6 +645,7 @@ def run_analysis_cycle(
                     # Retry with increasing delay — order needs to fully fill first
                     if is_buy and signal.stop_loss_price and result.get("status") == "submitted":
                         import time
+                        stop_result = None
                         for attempt in range(4):
                             time.sleep(2)  # 2s between attempts (total up to 8s)
                             stop_result = executor.set_stop_loss(signal.symbol, signal.stop_loss_price)
@@ -632,10 +655,19 @@ def run_analysis_cycle(
                             if status == "skipped" and "fractional" in stop_result.get("reason", ""):
                                 break  # Fractional position — can't set stop, that's OK
                             logger.debug("Stop-loss attempt %d for %s — waiting for fill...", attempt + 1, signal.symbol)
-                        logger.info(
-                            "Stop-loss for %s: %s",
-                            signal.symbol, stop_result.get("status"),
-                        )
+
+                        # Check final result — alert on failure
+                        final_status = stop_result.get("status", "unknown") if stop_result else "unknown"
+                        if final_status == "submitted":
+                            logger.info("Stop-loss for %s: set @ $%.2f", signal.symbol, signal.stop_loss_price)
+                        elif final_status == "skipped" and "fractional" in stop_result.get("reason", ""):
+                            pass  # Expected for fractional positions
+                        else:
+                            logger.error(
+                                "UNPROTECTED POSITION: Failed to set stop-loss for %s after 4 attempts. "
+                                "Position is LIVE with NO stop protection. Last error: %s",
+                                signal.symbol, stop_result.get("error", stop_result.get("reason", "unknown")),
+                            )
                 except Exception as e:
                     logger.error("Order execution failed for %s: %s", signal.symbol, e)
                     result = {"status": "error", "symbol": signal.symbol, "error": str(e)}
