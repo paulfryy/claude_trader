@@ -14,6 +14,7 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "schedule>=1.2.0",        # Task scheduling
     "rich>=13.0.0",           # Pretty logging output
+    "pytz>=2024.1",           # Required by alpaca-py (not declared by it)
 ]
 
 [project.optional-dependencies]
