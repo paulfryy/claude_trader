@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Cycle Detail — {{ mode|upper }}{% endblock %}
+
+{% block content %}
+<p><a href="{{ url_for('cycles', mode=mode) }}">← Back to cycles</a></p>
+
+<h2>{{ data.timestamp|fmt_time }} — {{ data.market_regime }} ({{ data.regime_confidence }})</h2>
+<p class="muted">{{ data.timestamp|fmt_date }}</p>
+
+{% if data.market_summary %}
+<blockquote>{{ data.market_summary }}</blockquote>
+{% endif %}
+
+{% if data.key_observations %}
+<h3>Key Observations</h3>
+<ul>
+    {% for obs in data.key_observations %}
+    <li>{{ obs }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+{% if data.sector_outlook %}
+<h3>Sector Outlook</h3>
+<ul>
+    {% for sector, outlook in data.sector_outlook.items() %}
+    <li><strong>{{ sector }}:</strong> {{ outlook }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+{% if data.signals %}
+<h3>Trade Signals ({{ data.signals|length }})</h3>
+{% for s in data.signals %}
+<div class="signal">
+    <h4>{{ s.action|upper }} {{ s.symbol }}
+        <span class="muted">— {{ s.conviction }} conviction</span>
+    </h4>
+    <ul>
+        <li>Size: {{ (s.position_size_pct or 0) * 100 }}% of portfolio</li>
+        {% if s.target_price %}<li>Target: ${{ s.target_price }}</li>{% endif %}
+        {% if s.stop_loss_price %}<li>Stop Loss: ${{ s.stop_loss_price }}</li>{% endif %}
+        {% if s.risk_reward_ratio %}<li>R/R: {{ s.risk_reward_ratio }}</li>{% endif %}
+        {% if s.time_horizon %}<li>Horizon: {{ s.time_horizon }}</li>{% endif %}
+        {% if s.is_catalyst_trade and s.catalyst %}<li><strong>Catalyst:</strong> {{ s.catalyst }}</li>{% endif %}
+    </ul>
+    <p>{{ s.rationale }}</p>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if data.positions_to_close %}
+<h3>Positions to Close</h3>
+<ul>
+    {% for sym in data.positions_to_close %}
+    <li>{{ sym }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+{% if data.stop_adjustments %}
+<h3>Stop Adjustments</h3>
+<ul>
+    {% for sym, price in data.stop_adjustments.items() %}
+    <li><strong>{{ sym }}:</strong> ${{ price }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+{% if data.portfolio_state %}
+<h3>Portfolio State (at time of decision)</h3>
+<ul>
+    <li>Equity: {{ data.portfolio_state.equity|fmt_money }}</li>
+    <li>Cash: {{ data.portfolio_state.cash|fmt_money }}</li>
+    <li>Exposure: {{ data.portfolio_state.exposure_pct|fmt_pct }}</li>
+    <li>Positions: {{ data.portfolio_state.num_positions }}</li>
+</ul>
+{% endif %}
+{% endblock %}

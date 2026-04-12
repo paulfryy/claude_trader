@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Claude Trading Agent{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1><a href="{{ url_for('overview', mode=mode) }}">Claude Trading Agent</a></h1>
+            <nav>
+                <a href="{{ url_for('overview', mode=mode) }}">Overview</a>
+                <a href="{{ url_for('positions', mode=mode) }}">Positions</a>
+                <a href="{{ url_for('history', mode=mode) }}">History</a>
+                <a href="{{ url_for('cycles', mode=mode) }}">Cycles</a>
+            </nav>
+            <div class="mode-toggle">
+                {% if mode == 'live' %}
+                    <span class="badge live">● LIVE</span>
+                    <a href="?mode=paper" class="toggle">Switch to Paper</a>
+                {% else %}
+                    <span class="badge paper">○ PAPER</span>
+                    <a href="?mode=live" class="toggle">Switch to Live</a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    <footer class="container">
+        <small>Last updated: {{ now }}</small>
+    </footer>
+</body>
+</html>

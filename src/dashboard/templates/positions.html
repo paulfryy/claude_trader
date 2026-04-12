@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Positions — {{ mode|upper }}{% endblock %}
+
+{% block content %}
+<h2>Positions</h2>
+
+{% if error %}
+<p class="error">{{ error }}</p>
+{% elif not positions %}
+<p class="muted">No open positions.</p>
+{% else %}
+<div class="stats-grid">
+    <div class="stat">
+        <div class="label">Positions</div>
+        <div class="value">{{ positions|length }}</div>
+    </div>
+    <div class="stat">
+        <div class="label">Total Value</div>
+        <div class="value">{{ total_value|fmt_money }}</div>
+    </div>
+    <div class="stat {% if total_pl > 0 %}positive{% elif total_pl < 0 %}negative{% endif %}">
+        <div class="label">Total P&amp;L</div>
+        <div class="value">{{ total_pl|fmt_money }}</div>
+    </div>
+</div>
+
+<table class="positions-table">
+    <tr>
+        <th>Symbol</th>
+        <th>Qty</th>
+        <th>Avg Entry</th>
+        <th>Current</th>
+        <th>Market Value</th>
+        <th>P&amp;L</th>
+        <th>P&amp;L %</th>
+    </tr>
+    {% for p in positions %}
+    <tr>
+        <td class="symbol">{{ p.symbol }}</td>
+        <td>{{ "%.4f"|format(p.qty) }}</td>
+        <td>{{ p.avg_entry_price|fmt_money }}</td>
+        <td>{{ p.current_price|fmt_money }}</td>
+        <td>{{ p.market_value|fmt_money }}</td>
+        <td class="{% if p.unrealized_pl > 0 %}positive{% elif p.unrealized_pl < 0 %}negative{% endif %}">
+            {{ p.unrealized_pl|fmt_money }}
+        </td>
+        <td class="{% if p.unrealized_plpc > 0 %}positive{% elif p.unrealized_plpc < 0 %}negative{% endif %}">
+            {{ p.unrealized_plpc|fmt_pct }}
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

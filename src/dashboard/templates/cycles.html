@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Cycles — {{ mode|upper }}{% endblock %}
+
+{% block content %}
+<h2>Recent Analysis Cycles</h2>
+
+{% if not decisions %}
+<p class="muted">No cycles yet.</p>
+{% else %}
+{% for d in decisions %}
+<article class="cycle">
+    <header>
+        <h3>{{ d.timestamp|fmt_time }} — {{ d.market_regime }} ({{ d.regime_confidence }})</h3>
+        <span class="muted">{{ d.timestamp|fmt_date }}</span>
+    </header>
+    {% if d.market_summary %}
+    <blockquote>{{ d.market_summary }}</blockquote>
+    {% endif %}
+    <p>
+        <strong>{{ d.num_signals }}</strong> signals,
+        <strong>{{ d.num_closes }}</strong> closes —
+        <a href="{{ url_for('cycle_detail', filename=d.filename, mode=mode) }}">Details</a>
+    </p>
+</article>
+{% endfor %}
+{% endif %}
+{% endblock %}

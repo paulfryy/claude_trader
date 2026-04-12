@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Overview — {{ mode|upper }}{% endblock %}
+
+{% block content %}
+<h2>Overview</h2>
+<p class="muted">Data source: {{ data_source }}</p>
+
+<div class="stats-grid">
+    <div class="stat">
+        <div class="label">Equity</div>
+        <div class="value">{{ equity|fmt_money }}</div>
+    </div>
+    <div class="stat">
+        <div class="label">Cash</div>
+        <div class="value">{{ cash|fmt_money }}</div>
+    </div>
+    <div class="stat">
+        <div class="label">Exposure</div>
+        <div class="value">{{ exposure|fmt_pct(1) }}</div>
+    </div>
+    <div class="stat">
+        <div class="label">Positions</div>
+        <div class="value">{{ num_positions }}</div>
+    </div>
+    <div class="stat {% if total_return_pct > 0 %}positive{% elif total_return_pct < 0 %}negative{% endif %}">
+        <div class="label">Total Return</div>
+        <div class="value">{{ total_return_pct|fmt_pct }}</div>
+        <div class="sub">{{ total_pl|fmt_money }} unrealized</div>
+    </div>
+    {% if benchmark and benchmark.return_pct is not none %}
+    <div class="stat {% if alpha and alpha > 0 %}positive{% elif alpha and alpha < 0 %}negative{% endif %}">
+        <div class="label">Alpha vs SPY</div>
+        <div class="value">{{ alpha|fmt_pct }}</div>
+        <div class="sub">SPY: {{ benchmark.return_pct|fmt_pct }}</div>
+    </div>
+    {% endif %}
+</div>
+
+{% if latest_decision %}
+<section>
+    <h3>Latest Cycle — {{ latest_decision.timestamp|fmt_time }}</h3>
+    <div class="regime">
+        <strong>Market:</strong> {{ latest_decision.market_regime }}
+        ({{ latest_decision.regime_confidence }})
+    </div>
+    {% if latest_decision.market_summary %}
+    <blockquote>{{ latest_decision.market_summary }}</blockquote>
+    {% endif %}
+
+    {% if latest_decision.key_observations %}
+    <h4>Key Observations</h4>
+    <ul>
+        {% for obs in latest_decision.key_observations %}
+        <li>{{ obs }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if latest_decision.signals %}
+    <h4>Signals ({{ latest_decision.signals|length }})</h4>
+    <table>
+        <tr>
+            <th>Action</th><th>Symbol</th><th>Conviction</th><th>Size</th><th>Target</th><th>Stop</th>
+        </tr>
+        {% for s in latest_decision.signals %}
+        <tr>
+            <td>{{ s.action }}</td>
+            <td>{{ s.symbol }}</td>
+            <td>{{ s.conviction }}</td>
+            <td>{{ (s.position_size_pct or 0) * 100 }}%</td>
+            <td>{{ s.target_price or '—' }}</td>
+            <td>{{ s.stop_loss_price or '—' }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% endif %}
+
+    {% if latest_decision.positions_to_close %}
+    <h4>Positions to Close</h4>
+    <ul>
+        {% for sym in latest_decision.positions_to_close %}
+        <li>{{ sym }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</section>
+{% else %}
+<p class="muted">No cycles have run yet for {{ mode }} mode.</p>
+{% endif %}
+{% endblock %}

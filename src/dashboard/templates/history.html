@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}History — {{ mode|upper }}{% endblock %}
+
+{% block content %}
+<h2>Daily Summaries</h2>
+
+{% if not summaries %}
+<p class="muted">No summaries yet.</p>
+{% else %}
+<table>
+    <tr>
+        <th>Date</th>
+        <th>Size</th>
+        <th></th>
+    </tr>
+    {% for s in summaries %}
+    <tr>
+        <td>{{ s.date }}</td>
+        <td>{{ s.size_kb }} KB</td>
+        <td><a href="{{ url_for('history_day', date=s.date, mode=mode) }}">View</a></td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

@@ -15,6 +15,8 @@ dependencies = [
     "schedule>=1.2.0",        # Task scheduling
     "rich>=13.0.0",           # Pretty logging output
     "pytz>=2024.1",           # Required by alpaca-py (not declared by it)
+    "flask>=3.0.0",           # Read-only dashboard
+    "markdown>=3.5.0",        # Rendering summary files in the dashboard
 ]
 
 [project.optional-dependencies]
