@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ date }} Report — {{ mode|upper }}{% endblock %}
+
+{% block content %}
+<p><a href="{{ url_for('reports', mode=mode) }}">← Back to reports</a></p>
+<div class="markdown">
+{{ html|safe }}
+</div>
+{% endblock %}

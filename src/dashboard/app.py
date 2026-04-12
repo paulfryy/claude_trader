@@ -135,6 +135,21 @@ def list_summaries(mode: str) -> list[dict]:
     ]
 
 
+def list_reports(mode: str) -> list[dict]:
+    """List all end-of-day report markdown files, newest first."""
+    reports_dir = get_logs_dir(mode) / "reports"
+    if not reports_dir.exists():
+        return []
+    files = sorted(reports_dir.glob("*.md"), reverse=True)
+    return [
+        {
+            "date": f.stem,
+            "size_kb": round(f.stat().st_size / 1024, 1),
+        }
+        for f in files
+    ]
+
+
 def list_recent_decisions(mode: str, limit: int = 20) -> list[dict]:
     """List recent decision logs, newest first."""
     decision_dir = get_decision_logs_dir(mode)
@@ -332,6 +347,29 @@ def history_day(date: str):
         html = f"<p>Error reading summary: {e}</p>"
 
     return render_template("summary.html", mode=mode, date=date, html=html)
+
+
+@app.route("/reports")
+def reports():
+    mode = get_mode()
+    reports_list = list_reports(mode)
+    return render_template("reports.html", mode=mode, reports=reports_list)
+
+
+@app.route("/reports/<date>")
+def report_day(date: str):
+    mode = get_mode()
+    report_file = get_logs_dir(mode) / "reports" / f"{date}.md"
+    if not report_file.exists():
+        abort(404)
+
+    try:
+        content = report_file.read_text(encoding="utf-8")
+        html = markdown.markdown(content, extensions=["tables", "fenced_code"])
+    except Exception as e:
+        html = f"<p>Error reading report: {e}</p>"
+
+    return render_template("report.html", mode=mode, date=date, html=html)
 
 
 @app.route("/cycles")

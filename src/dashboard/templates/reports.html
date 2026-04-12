@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Reports — {{ mode|upper }}{% endblock %}
+
+{% block content %}
+<h2>End-of-Day Reports</h2>
+<p class="muted">Consolidated daily reports with position tables, realized P&amp;L, and Claude's full-day narrative.</p>
+
+{% if not reports %}
+<p class="muted">No reports yet. End-of-day reports are generated during the 3:45 PM closing cycle.</p>
+{% else %}
+<table>
+    <tr>
+        <th>Date</th>
+        <th>Size</th>
+        <th></th>
+    </tr>
+    {% for r in reports %}
+    <tr>
+        <td>{{ r.date }}</td>
+        <td>{{ r.size_kb }} KB</td>
+        <td><a href="{{ url_for('report_day', date=r.date, mode=mode) }}">View</a></td>
+    </tr>
+    {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

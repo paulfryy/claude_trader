@@ -25,6 +25,7 @@ from src.execution.orders import OrderExecutor
 from src.logging_utils.benchmark import get_benchmark_data
 from src.logging_utils.daily_summary import write_daily_summary
 from src.logging_utils.decision_log import DecisionLog
+from src.logging_utils.eod_report import generate_eod_report
 from src.logging_utils.trade_journal import TradeJournal
 from src.portfolio.portfolio import PortfolioTracker
 from src.portfolio.risk import RiskManager
@@ -326,8 +327,9 @@ def run_analysis_cycle(
     cycle_freed_options_value = 0.0
     closed_this_cycle = set()  # Track symbols already closed to prevent duplicates
 
-    # Build a lookup of position symbol -> market_value for exposure tracking
+    # Build lookups for exposure tracking and realized P&L on close
     position_values = {p["symbol"]: abs(p["market_value"]) for p in positions}
+    position_lookup = {p["symbol"]: p for p in positions}
     equity = portfolio_state.get("equity", 1.0) or 1.0
 
     for symbol in analysis.positions_to_close:
@@ -347,16 +349,25 @@ def run_analysis_cycle(
             continue
 
         closed_value = position_values.get(symbol, 0)
+        pos_snapshot = position_lookup.get(symbol, {})
+        pre_close_pl = pos_snapshot.get("unrealized_pl", 0)
+        pre_close_plpc = pos_snapshot.get("unrealized_plpc", 0)
 
         if dry_run:
             logger.info("[DRY RUN] Would close position: %s (frees ~$%.2f)", symbol, closed_value)
-            execution_results.append({"status": "dry_run", "symbol": symbol, "action": "close"})
+            execution_results.append({
+                "status": "dry_run", "symbol": symbol, "action": "close",
+                "realized_pl": pre_close_pl, "realized_plpc": pre_close_plpc,
+            })
             cycle_freed_exposure_pct += closed_value / equity
         else:
             try:
                 # Cancel any stop orders first — they hold shares and block the close
                 executor._cancel_existing_stops(symbol)
                 result = executor.close_position(symbol)
+                # Capture realized P&L — what was unrealized just became realized
+                result["realized_pl"] = pre_close_pl
+                result["realized_plpc"] = pre_close_plpc
                 execution_results.append(result)
                 logger.info(
                     "Closing position: %s → %s (frees ~$%.2f)",
@@ -440,13 +451,22 @@ def run_analysis_cycle(
                 logger.debug("Already closed %s this cycle, skipping duplicate sell signal", signal.symbol)
                 continue
             closed_value = position_values.get(signal.symbol, 0)
+            pos_snapshot = position_lookup.get(signal.symbol, {})
+            pre_close_pl = pos_snapshot.get("unrealized_pl", 0)
+            pre_close_plpc = pos_snapshot.get("unrealized_plpc", 0)
+
             if dry_run:
                 logger.info("[DRY RUN] Would close position: %s (frees ~$%.2f)", signal.symbol, closed_value)
-                result = {"status": "dry_run", "symbol": signal.symbol, "action": "close"}
+                result = {
+                    "status": "dry_run", "symbol": signal.symbol, "action": "close",
+                    "realized_pl": pre_close_pl, "realized_plpc": pre_close_plpc,
+                }
             else:
                 # Cancel any existing stop orders first
                 executor._cancel_existing_stops(signal.symbol)
                 result = executor.close_position(signal.symbol)
+                result["realized_pl"] = pre_close_pl
+                result["realized_plpc"] = pre_close_plpc
             execution_results.append(result)
             trade_journal.log_trade(
                 signal=signal, execution_result=result,
@@ -746,6 +766,17 @@ def run_analysis_cycle(
         benchmark=benchmark,
         trading_mode=settings.trading_mode,
     )
+
+    # Step 12: Generate end-of-day report (closing cycle only)
+    if mode == CycleMode.CLOSING:
+        try:
+            generate_eod_report(
+                settings=settings,
+                portfolio_state=post_state,
+                benchmark=benchmark,
+            )
+        except Exception as e:
+            logger.error("Failed to generate EOD report: %s", e)
 
     executed = sum(1 for r in execution_results if r.get("status") in ("submitted", "dry_run"))
     errored = sum(1 for r in execution_results if r.get("status") == "error")
