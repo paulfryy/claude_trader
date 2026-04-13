@@ -104,7 +104,9 @@ def validate_connections(settings) -> bool:
         errors.append(f"Alpaca connection failed: {e}")
         logger.error("Alpaca connection failed: %s", e)
 
-    # Check Anthropic
+    # Check Anthropic — transient errors (529 overloaded, 503, etc) are
+    # tolerated at startup so the scheduler can still boot and recover on
+    # the first real cycle (which has its own retry logic).
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=settings.claude.anthropic_api_key)
@@ -115,8 +117,24 @@ def validate_connections(settings) -> bool:
         )
         logger.info("Anthropic OK — model: %s", settings.claude.claude_model)
     except Exception as e:
-        errors.append(f"Anthropic connection failed: {e}")
-        logger.error("Anthropic connection failed: %s", e)
+        # Check if this is a transient error we should tolerate
+        err_str = str(e).lower()
+        transient = (
+            "529" in err_str
+            or "overloaded" in err_str
+            or "503" in err_str
+            or "service unavailable" in err_str
+            or "429" in err_str
+        )
+        if transient:
+            logger.warning(
+                "Anthropic transient error at startup: %s. "
+                "Continuing — first cycle will retry.",
+                e,
+            )
+        else:
+            errors.append(f"Anthropic connection failed: {e}")
+            logger.error("Anthropic connection failed: %s", e)
 
     if errors:
         logger.error("Startup validation FAILED:")
