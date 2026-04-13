@@ -38,7 +38,7 @@
 
 {% if latest_decision %}
 <section>
-    <h3>Latest Cycle — {{ latest_decision.timestamp|fmt_time }}</h3>
+    <h3>Latest Cycle — {{ latest_decision.timestamp|fmt_date }} {{ latest_decision.timestamp|fmt_time }}</h3>
     <div class="regime">
         <strong>Market:</strong> {{ latest_decision.market_regime }}
         ({{ latest_decision.regime_confidence }})
