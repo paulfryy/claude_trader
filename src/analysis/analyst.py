@@ -57,7 +57,7 @@ class ClaudeAnalyst:
 
         logger.info("Sending analysis request to Claude (%s, %s mode)", self._model, cycle_mode)
 
-        response = self._client.messages.create(
+        response = self._call_with_retry(
             model=self._model,
             max_tokens=4096,
             system=self._system_prompt(cycle_mode),
@@ -69,6 +69,60 @@ class ClaudeAnalyst:
 
         analysis = self._parse_response(raw_response)
         return analysis
+
+    def _call_with_retry(self, **kwargs):
+        """
+        Call Claude's messages API with retry on transient failures.
+
+        Retries on:
+        - 529 Overloaded (Anthropic servers at capacity)
+        - 503 Service Unavailable
+        - Connection errors / timeouts
+
+        Does NOT retry on:
+        - 400 Bad Request (malformed input — won't get better)
+        - 401 Unauthorized (bad API key)
+        - 402 Payment Required (out of credits)
+        """
+        import time
+        max_attempts = 4
+        base_delay = 15  # seconds
+
+        for attempt in range(max_attempts):
+            try:
+                return self._client.messages.create(**kwargs)
+            except anthropic.APIStatusError as e:
+                # Check if it's retryable
+                status = getattr(e, "status_code", None)
+                is_overloaded = status == 529 or "overloaded" in str(e).lower()
+                is_unavailable = status == 503
+                is_rate_limit = status == 429
+                retryable = is_overloaded or is_unavailable or is_rate_limit
+
+                if retryable and attempt < max_attempts - 1:
+                    # Exponential backoff: 15s, 30s, 60s
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        "Claude API %s (status=%s). Retrying in %ds (attempt %d/%d)",
+                        "overloaded" if is_overloaded else "unavailable",
+                        status, delay, attempt + 1, max_attempts,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
+            except (anthropic.APIConnectionError, anthropic.APITimeoutError) as e:
+                if attempt < max_attempts - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        "Claude API connection error: %s. Retrying in %ds (attempt %d/%d)",
+                        e, delay, attempt + 1, max_attempts,
+                    )
+                    time.sleep(delay)
+                    continue
+                raise
+
+        # Should not reach here, but just in case
+        raise RuntimeError("Claude API retry loop exhausted without success")
 
     def _system_prompt(self, cycle_mode: str = "morning") -> str:
         risk = self.settings.risk
@@ -346,7 +400,7 @@ If none of the affordable contracts are a good fit for your thesis, respond with
 """
 
         try:
-            response = self._client.messages.create(
+            response = self._call_with_retry(
                 model=self._model,
                 max_tokens=500,
                 messages=[{"role": "user", "content": prompt}],
