@@ -249,7 +249,10 @@ You must respond with valid JSON matching this schema:
 STOP-LOSS MANAGEMENT:
 - Check "current_stop_loss" in each position.
 - If a position shows "NONE — needs stop set", include it in stop_adjustments.
-- If a position shows "FRACTIONAL POSITION", do NOT include it in stop_adjustments (the broker can't set stops on fractional shares). Instead, if you want to exit it, use a sell signal in trade_signals.
+- If a position shows "FRACTIONAL POSITION", do NOT include it in stop_adjustments (the broker can't set stops on fractional shares). These require manual monitoring:
+  - **REQUIRED: If a fractional position's unrealized_plpc is <= -{risk.stop_loss_default_pct:.0%}, you MUST propose a SELL signal for it in trade_signals this cycle.** This is the software equivalent of a stop-loss trigger for fractional positions.
+  - Check every fractional position's P&L% each cycle and act on it. Do not let a fractional position run past the stop threshold — close it.
+  - If the original buy had a specific stop_loss_price set, use that level instead of the default percentage when deciding to exit.
 - You can tighten stops (raise them) on winning positions to lock in profits.
 - You can adjust stops based on new support levels or changed thesis.
 - stop_adjustments is a dict of symbol -> new stop price.
