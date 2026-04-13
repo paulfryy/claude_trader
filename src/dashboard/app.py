@@ -23,6 +23,7 @@ from flask import Flask, abort, flash, redirect, render_template, request, url_f
 from src.config import get_decision_logs_dir, get_logs_dir, get_summary_dir, load_settings
 from src.dashboard import controls
 from src.data.market_data import MarketDataClient
+from src.logging_utils.anomaly_log import ANOMALY_TYPES, count_by_type, read_anomalies
 
 logger = logging.getLogger(__name__)
 
@@ -395,6 +396,89 @@ def cycle_detail(filename: str):
         abort(500)
 
     return render_template("cycle_detail.html", mode=mode, data=data, filename=filename)
+
+
+@app.route("/diagnostics")
+def diagnostics():
+    mode = get_mode()
+    filter_type = request.args.get("type", "") or None
+    since_days = int(request.args.get("days", "7"))
+    min_severity = request.args.get("severity", "info")
+
+    anomalies = read_anomalies(
+        mode,
+        limit=200,
+        since_days=since_days,
+        filter_type=filter_type,
+        min_severity=min_severity,
+    )
+    counts = count_by_type(mode, since_days=since_days)
+
+    return render_template(
+        "diagnostics.html",
+        mode=mode,
+        anomalies=anomalies,
+        counts=counts,
+        anomaly_types=ANOMALY_TYPES,
+        selected_type=filter_type or "",
+        selected_days=since_days,
+        selected_severity=min_severity,
+    )
+
+
+@app.route("/diagnostics/export")
+def diagnostics_export():
+    """Export recent anomalies as markdown for pasting into a chat."""
+    mode = get_mode()
+    since_days = int(request.args.get("days", "7"))
+
+    anomalies = read_anomalies(mode, limit=500, since_days=since_days)
+    counts = count_by_type(mode, since_days=since_days)
+
+    # Build markdown ready to paste
+    from datetime import datetime as _dt
+    lines = []
+    lines.append(f"# Anomaly Report — {mode.upper()} — last {since_days} days")
+    lines.append(f"Generated: {_dt.now().isoformat()}")
+    lines.append("")
+
+    if not anomalies:
+        lines.append("_No anomalies recorded._")
+    else:
+        lines.append(f"## Summary ({len(anomalies)} entries)")
+        lines.append("")
+        for atype, count in sorted(counts.items(), key=lambda x: -x[1]):
+            desc = ANOMALY_TYPES.get(atype, atype)
+            lines.append(f"- **{atype}** ({count}): {desc}")
+        lines.append("")
+        lines.append("## Entries (newest first)")
+        lines.append("")
+        for a in anomalies:
+            ts = a.get("timestamp", "")[:19]
+            sev = a.get("severity", "info").upper()
+            atype = a.get("type", "")
+            sym = a.get("symbol") or ""
+            msg = a.get("message", "")
+            ctx = a.get("context", {})
+
+            header = f"### {ts} · {sev} · {atype}"
+            if sym:
+                header += f" · {sym}"
+            lines.append(header)
+            lines.append("")
+            lines.append(msg)
+            if ctx:
+                lines.append("```json")
+                lines.append(json.dumps(ctx, indent=2, default=str))
+                lines.append("```")
+            lines.append("")
+
+    from flask import Response
+    return Response(
+        "\n".join(lines),
+        mimetype="text/markdown",
+        headers={"Content-Disposition": f"inline; filename=anomalies-{mode}-{since_days}d.md"},
+    )
 
 
 @app.route("/controls")

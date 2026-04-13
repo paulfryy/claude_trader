@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Diagnostics — {{ mode|upper }}{% endblock %}
+
+{% block content %}
+<h2>Diagnostics</h2>
+<p class="muted">Anomalies captured from the trading cycle — rejections, errors, and unusual events. Use this to spot problems and share feedback for improvements.</p>
+
+<section>
+    <h3>Summary (last {{ selected_days }} days)</h3>
+    {% if not counts %}
+    <p class="muted">No anomalies recorded.</p>
+    {% else %}
+    <div class="stats-grid">
+        {% for atype, count in counts.items()|sort(attribute='1', reverse=True) %}
+        <div class="stat">
+            <div class="label">{{ atype }}</div>
+            <div class="value">{{ count }}</div>
+            <div class="sub">{{ anomaly_types.get(atype, '') }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</section>
+
+<section>
+    <h3>Filters</h3>
+    <form method="get" action="{{ url_for('diagnostics') }}" class="filter-form">
+        <input type="hidden" name="mode" value="{{ mode }}">
+
+        <label>
+            Type:
+            <select name="type">
+                <option value="">All types</option>
+                {% for atype, desc in anomaly_types.items()|sort %}
+                <option value="{{ atype }}" {% if atype == selected_type %}selected{% endif %}>
+                    {{ atype }} — {{ desc }}
+                </option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label>
+            Severity:
+            <select name="severity">
+                <option value="info" {% if selected_severity == 'info' %}selected{% endif %}>info and above</option>
+                <option value="warning" {% if selected_severity == 'warning' %}selected{% endif %}>warning and above</option>
+                <option value="error" {% if selected_severity == 'error' %}selected{% endif %}>error only</option>
+            </select>
+        </label>
+
+        <label>
+            Days:
+            <select name="days">
+                <option value="1" {% if selected_days == 1 %}selected{% endif %}>1 day</option>
+                <option value="7" {% if selected_days == 7 %}selected{% endif %}>7 days</option>
+                <option value="14" {% if selected_days == 14 %}selected{% endif %}>14 days</option>
+                <option value="30" {% if selected_days == 30 %}selected{% endif %}>30 days</option>
+            </select>
+        </label>
+
+        <button type="submit" class="accent">Filter</button>
+        <a href="{{ url_for('diagnostics_export', mode=mode, days=selected_days) }}" class="export-link">
+            <button type="button">Export as Markdown</button>
+        </a>
+    </form>
+</section>
+
+<section>
+    <h3>Entries ({{ anomalies|length }})</h3>
+    {% if not anomalies %}
+    <p class="muted">No anomalies match the current filters.</p>
+    {% else %}
+    {% for a in anomalies %}
+    <div class="anomaly severity-{{ a.severity }}">
+        <div class="anomaly-header">
+            <span class="severity-badge severity-{{ a.severity }}">{{ a.severity }}</span>
+            <span class="anomaly-type">{{ a.type }}</span>
+            {% if a.symbol %}<span class="anomaly-symbol">{{ a.symbol }}</span>{% endif %}
+            <span class="anomaly-time">{{ a.timestamp|fmt_date }} {{ a.timestamp|fmt_time }}</span>
+            <span class="anomaly-cycle muted">{{ a.cycle_mode }}</span>
+        </div>
+        <div class="anomaly-message">{{ a.message }}</div>
+        {% if a.context %}
+        <details>
+            <summary>Context</summary>
+            <pre>{{ a.context|tojson(indent=2) }}</pre>
+        </details>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+</section>
+{% endblock %}

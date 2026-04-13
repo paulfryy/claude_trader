@@ -22,6 +22,7 @@ from src.data.news import NewsDataClient
 from src.data.options_chain import OptionsChainClient
 from src.data.screener import Screener
 from src.execution.orders import OrderExecutor
+from src.logging_utils.anomaly_log import log_anomaly
 from src.logging_utils.benchmark import get_benchmark_data
 from src.logging_utils.daily_summary import write_daily_summary
 from src.logging_utils.decision_log import DecisionLog
@@ -307,10 +308,14 @@ def run_analysis_cycle(
     except json.JSONDecodeError as e:
         logger.error("Claude returned invalid JSON: %s", e)
         _log_error(e, "Claude JSON parsing")
+        log_anomaly(settings, "claude_parse_error", f"Failed to parse Claude response: {e}",
+                    severity="error", cycle_mode=mode, context={"error": str(e)})
         return False
     except Exception as e:
         logger.error("Claude analysis failed: %s", e)
         _log_error(e, "Claude analysis")
+        log_anomaly(settings, "cycle_error", f"Claude analysis failed: {e}",
+                    severity="error", cycle_mode=mode, context={"error": str(e)})
         return False
 
     logger.info(
@@ -443,6 +448,11 @@ def run_analysis_cycle(
             logger.warning("PDT PROTECTION: %s %s — %s", signal.action.value, signal.symbol, reason)
             rejected_signals.append({"symbol": signal.symbol, "reason": reason})
             trade_journal.log_rejection(signal, reason, portfolio_state)
+            log_anomaly(
+                settings, "pdt_block", f"{signal.symbol}: PDT — position opened today, can't sell",
+                severity="info", cycle_mode=mode, symbol=signal.symbol,
+                context={"action": signal.action.value},
+            )
             continue
 
         # Sell signals: close the position directly (don't go through sizing)
@@ -487,6 +497,11 @@ def run_analysis_cycle(
             logger.info("LIMIT: Skipping %s %s — %s", signal.action.value, signal.symbol, reason)
             rejected_signals.append({"symbol": signal.symbol, "reason": reason})
             trade_journal.log_rejection(signal, reason, portfolio_state)
+            log_anomaly(
+                settings, "daily_limit_hit", f"{signal.symbol}: daily position limit reached",
+                severity="info", cycle_mode=mode, symbol=signal.symbol,
+                context={"action": signal.action.value, "limit": max_new_per_day},
+            )
             continue
 
         # Risk check — use updated state reflecting:
@@ -512,6 +527,26 @@ def run_analysis_cycle(
         if not risk_result.approved:
             trade_journal.log_rejection(signal, risk_result.reason, portfolio_state)
             rejected_signals.append({"symbol": signal.symbol, "reason": risk_result.reason})
+            # Classify the rejection reason for better filtering
+            reason_lower = risk_result.reason.lower()
+            if "drawdown" in reason_lower or "circuit breaker" in reason_lower:
+                atype = "circuit_breaker"
+            elif "exposure" in reason_lower:
+                atype = "over_exposure"
+            elif "pdt" in reason_lower:
+                atype = "pdt_block"
+            else:
+                atype = "signal_rejected"
+            log_anomaly(
+                settings, atype, f"{signal.symbol}: {risk_result.reason}",
+                severity="warning", cycle_mode=mode, symbol=signal.symbol,
+                context={
+                    "action": signal.action.value,
+                    "reason": risk_result.reason,
+                    "position_size_pct": signal.position_size_pct,
+                    "rationale": signal.rationale,
+                },
+            )
             continue
 
         # Determine position size (use adjusted size if risk clamped it)
@@ -534,6 +569,17 @@ def run_analysis_cycle(
             logger.warning("BAD STOP: %s %s — %s", signal.action.value, signal.symbol, reason)
             rejected_signals.append({"symbol": signal.symbol, "reason": reason})
             trade_journal.log_rejection(signal, reason, portfolio_state)
+            log_anomaly(
+                settings, "bad_stop_loss",
+                f"{signal.symbol}: stop ${signal.stop_loss_price:.2f} >= current ${current_price:.2f}",
+                severity="warning", cycle_mode=mode, symbol=signal.symbol,
+                context={
+                    "stop_loss_price": signal.stop_loss_price,
+                    "current_price": current_price,
+                    "action": signal.action.value,
+                    "rationale": signal.rationale,
+                },
+            )
             continue
 
         # Determine if this is an options or equity trade
@@ -559,6 +605,12 @@ def run_analysis_cycle(
 
             if not chain:
                 logger.warning("No options chain available for %s, skipping", signal.symbol)
+                log_anomaly(
+                    settings, "options_no_chain",
+                    f"{signal.symbol}: options chain fetch returned empty",
+                    severity="warning", cycle_mode=mode, symbol=signal.symbol,
+                    context={"contract_type": contract_type},
+                )
                 continue
 
             affordable_count = sum(1 for c in chain if c["affordable"])
@@ -567,6 +619,17 @@ def run_analysis_cycle(
                 logger.warning(reason)
                 rejected_signals.append({"symbol": signal.symbol, "reason": reason})
                 trade_journal.log_rejection(signal, reason, portfolio_state)
+                log_anomaly(
+                    settings, "options_unaffordable",
+                    f"{signal.symbol}: no affordable {contract_type} contracts (budget ${premium_budget:.2f})",
+                    severity="warning", cycle_mode=mode, symbol=signal.symbol,
+                    context={
+                        "contract_type": contract_type,
+                        "budget": premium_budget,
+                        "chain_size": len(chain),
+                        "cheapest_cost": min(c["cost_per_contract"] for c in chain) if chain else None,
+                    },
+                )
                 continue
 
             # Let Claude pick the best contract
@@ -626,6 +689,12 @@ def run_analysis_cycle(
                     logger.error("Options execution failed for %s: %s", signal.symbol, e)
                     result = {"status": "error", "symbol": signal.symbol, "error": str(e)}
                     execution_results.append(result)
+                    log_anomaly(
+                        settings, "order_error",
+                        f"Options order failed for {signal.symbol}: {e}",
+                        severity="error", cycle_mode=mode, symbol=signal.symbol,
+                        context={"action": signal.action.value, "error": str(e)},
+                    )
         else:
             # Equity: use notional (dollar-based) orders for fractional shares
             notional = calculate_notional(signal, portfolio_state["equity"], current_price, size_pct)
@@ -683,15 +752,38 @@ def run_analysis_cycle(
                         elif final_status == "skipped" and "fractional" in stop_result.get("reason", ""):
                             pass  # Expected for fractional positions
                         else:
+                            err_msg = stop_result.get("error", stop_result.get("reason", "unknown"))
                             logger.error(
                                 "UNPROTECTED POSITION: Failed to set stop-loss for %s after 4 attempts. "
                                 "Position is LIVE with NO stop protection. Last error: %s",
-                                signal.symbol, stop_result.get("error", stop_result.get("reason", "unknown")),
+                                signal.symbol, err_msg,
+                            )
+                            log_anomaly(
+                                settings, "stop_loss_failed",
+                                f"{signal.symbol}: stop-loss failed after 4 attempts — position unprotected",
+                                severity="error", cycle_mode=mode, symbol=signal.symbol,
+                                context={
+                                    "stop_price": signal.stop_loss_price,
+                                    "last_error": err_msg,
+                                    "notional": notional,
+                                },
                             )
                 except Exception as e:
                     logger.error("Order execution failed for %s: %s", signal.symbol, e)
                     result = {"status": "error", "symbol": signal.symbol, "error": str(e)}
                     execution_results.append(result)
+                    err_str = str(e).lower()
+                    atype = "wash_trade_error" if "wash trade" in err_str else "order_error"
+                    log_anomaly(
+                        settings, atype,
+                        f"Equity order failed for {signal.symbol}: {e}",
+                        severity="error", cycle_mode=mode, symbol=signal.symbol,
+                        context={
+                            "action": signal.action.value,
+                            "notional": notional,
+                            "error": str(e),
+                        },
+                    )
 
         # Track exposure added this cycle for subsequent risk checks
         # (applies to both equity and options buys)
