@@ -310,6 +310,36 @@ sudo systemctl stop trading-agent-paper trading-agent-live
 
 ---
 
+## Enable Dashboard Controls (sudoers)
+
+The dashboard has a Controls page that can restart/start/stop the trading services.
+For the buttons to work, `ec2-user` needs passwordless sudo access to `systemctl`
+for ONLY the trading services (not general sudo — this is safe).
+
+Run this on the server:
+
+```bash
+sudo tee /etc/sudoers.d/trading-agent-controls << 'EOF'
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl restart trading-agent-paper
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl restart trading-agent-live
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl start trading-agent-paper
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl start trading-agent-live
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl stop trading-agent-paper
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl stop trading-agent-live
+EOF
+
+sudo chmod 440 /etc/sudoers.d/trading-agent-controls
+sudo visudo -c  # Validates the file
+```
+
+Test it:
+```bash
+sudo systemctl restart trading-agent-paper
+```
+If it doesn't prompt for a password, it's working.
+
+---
+
 ## Optional: Log Backup to S3
 
 Back up logs daily so you don't lose them if the server dies:

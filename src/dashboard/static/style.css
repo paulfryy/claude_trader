@@ -343,3 +343,110 @@ footer {
     color: var(--muted);
     text-align: center;
 }
+
+/* Flash messages */
+.flash {
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+}
+
+.flash-success {
+    background: rgba(76, 175, 80, 0.12);
+    border: 1px solid var(--positive);
+    color: var(--positive);
+}
+
+.flash-error {
+    background: rgba(224, 108, 117, 0.12);
+    border: 1px solid var(--negative);
+    color: var(--negative);
+}
+
+/* Buttons */
+button {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.15s;
+    margin-right: 0.35rem;
+    margin-bottom: 0.35rem;
+}
+
+button:hover {
+    background: rgba(94, 159, 239, 0.1);
+    border-color: var(--accent);
+}
+
+button.accent {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+    font-weight: 600;
+}
+
+button.accent:hover {
+    background: #7db2f4;
+}
+
+button.danger {
+    background: rgba(224, 108, 117, 0.12);
+    border-color: var(--negative);
+    color: var(--negative);
+}
+
+button.danger:hover {
+    background: rgba(224, 108, 117, 0.2);
+}
+
+/* Service table */
+.services-table td {
+    vertical-align: top;
+    padding: 0.75rem;
+}
+
+.services-table td.actions {
+    white-space: nowrap;
+}
+
+.services-table small {
+    display: block;
+    color: var(--muted);
+    font-size: 0.75rem;
+    margin-top: 0.15rem;
+}
+
+.stat .value.small {
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+/* Logs pane */
+pre.logs {
+    background: #0a0e13;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-family: "SF Mono", Consolas, Menlo, monospace;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    max-height: 500px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #c0c6d4;
+}
+
+section .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}

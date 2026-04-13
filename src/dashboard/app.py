@@ -18,9 +18,10 @@ from pathlib import Path
 
 import markdown
 from dotenv import load_dotenv
-from flask import Flask, abort, redirect, render_template, request, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, url_for
 
 from src.config import get_decision_logs_dir, get_logs_dir, get_summary_dir, load_settings
+from src.dashboard import controls
 from src.data.market_data import MarketDataClient
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,8 @@ app = Flask(
     template_folder="templates",
     static_folder="static",
 )
+# Simple secret for flash messages — dashboard is IP-restricted so this is fine
+app.secret_key = "claude-trading-agent-dashboard"
 
 
 def get_mode() -> str:
@@ -392,6 +395,82 @@ def cycle_detail(filename: str):
         abort(500)
 
     return render_template("cycle_detail.html", mode=mode, data=data, filename=filename)
+
+
+@app.route("/controls")
+def controls_page():
+    mode = get_mode()
+
+    # Get status of all services
+    services = [
+        controls.get_service_status("trading-agent-live"),
+        controls.get_service_status("trading-agent-paper"),
+        controls.get_service_status("trading-dashboard"),
+    ]
+
+    health = controls.get_server_health()
+    audit = controls.read_recent_audit(lines=15)
+
+    # Optional: view logs for a specific service
+    log_service = request.args.get("logs", "")
+    log_output = None
+    if log_service in ("trading-agent-live", "trading-agent-paper", "trading-dashboard"):
+        log_output = {
+            "service": log_service,
+            "content": controls.get_logs(log_service, lines=50),
+        }
+
+    return render_template(
+        "controls.html",
+        mode=mode,
+        services=services,
+        health=health,
+        audit=audit,
+        log_output=log_output,
+    )
+
+
+@app.route("/controls/restart/<service>", methods=["POST"])
+def controls_restart(service: str):
+    result = controls.restart_service(service)
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("controls_page", mode=get_mode()))
+
+
+@app.route("/controls/start/<service>", methods=["POST"])
+def controls_start(service: str):
+    result = controls.start_service(service)
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("controls_page", mode=get_mode()))
+
+
+@app.route("/controls/stop/<service>", methods=["POST"])
+def controls_stop(service: str):
+    result = controls.stop_service(service)
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("controls_page", mode=get_mode()))
+
+
+@app.route("/controls/pull", methods=["POST"])
+def controls_pull():
+    result = controls.git_pull()
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("controls_page", mode=get_mode()))
+
+
+@app.route("/controls/deps", methods=["POST"])
+def controls_deps():
+    result = controls.refresh_dependencies()
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("controls_page", mode=get_mode()))
+
+
+@app.route("/controls/cycle/<mode_param>", methods=["POST"])
+def controls_cycle(mode_param: str):
+    # Only dry-run cycles from the dashboard — real cycles happen on schedule
+    result = controls.trigger_manual_cycle(mode_param, dry_run=True)
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("controls_page", mode=get_mode()))
 
 
 def main():

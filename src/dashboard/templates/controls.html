@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Controls — {{ mode|upper }}{% endblock %}
+
+{% block content %}
+<h2>Controls</h2>
+<p class="muted">Manage services, deploy code, view logs. Actions are logged for audit.</p>
+
+<section>
+    <h3>Services</h3>
+    <table class="services-table">
+        <tr>
+            <th>Service</th>
+            <th>Status</th>
+            <th>Uptime</th>
+            <th>Memory</th>
+            <th>Actions</th>
+        </tr>
+        {% for svc in services %}
+        <tr>
+            <td class="symbol">
+                {% if 'live' in svc.name %}
+                    <span class="badge live">LIVE</span>
+                {% elif 'paper' in svc.name %}
+                    <span class="badge paper">PAPER</span>
+                {% else %}
+                    DASHBOARD
+                {% endif %}
+                <br><small>{{ svc.name }}</small>
+            </td>
+            <td>
+                {% if svc.active %}
+                    <span class="positive">● running</span>
+                {% else %}
+                    <span class="negative">○ stopped</span>
+                {% endif %}
+                <br><small class="muted">{{ svc.status }}</small>
+            </td>
+            <td>{{ svc.uptime or '—' }}</td>
+            <td>{{ svc.memory }}</td>
+            <td class="actions">
+                {% if svc.name != 'trading-dashboard' %}
+                    {% if svc.active %}
+                        <form method="post" action="{{ url_for('controls_restart', service=svc.name) }}" style="display:inline">
+                            <button type="submit" onclick="return confirm('Restart {{ svc.name }}?')">Restart</button>
+                        </form>
+                        <form method="post" action="{{ url_for('controls_stop', service=svc.name) }}" style="display:inline">
+                            <button type="submit" class="danger" onclick="return confirm('Stop {{ svc.name }}? This halts trading!')">Stop</button>
+                        </form>
+                    {% else %}
+                        <form method="post" action="{{ url_for('controls_start', service=svc.name) }}" style="display:inline">
+                            <button type="submit" class="accent">Start</button>
+                        </form>
+                    {% endif %}
+                    <form method="get" action="{{ url_for('controls_page') }}" style="display:inline">
+                        <input type="hidden" name="logs" value="{{ svc.name }}">
+                        <input type="hidden" name="mode" value="{{ mode }}">
+                        <button type="submit">View Logs</button>
+                    </form>
+                {% else %}
+                    <small class="muted">Self — manage via SSH</small>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</section>
+
+<section>
+    <h3>Deployment</h3>
+    <p>Pull latest code from GitHub, then restart services to apply.</p>
+    <div class="actions">
+        <form method="post" action="{{ url_for('controls_pull') }}" style="display:inline">
+            <button type="submit" class="accent" onclick="return confirm('Pull latest code from GitHub?')">
+                Git Pull
+            </button>
+        </form>
+        <form method="post" action="{{ url_for('controls_deps') }}" style="display:inline">
+            <button type="submit" onclick="return confirm('Reinstall Python dependencies? This may take a minute.')">
+                Refresh Dependencies
+            </button>
+        </form>
+    </div>
+</section>
+
+<section>
+    <h3>Manual Cycle (Dry Run)</h3>
+    <p>Trigger a one-off analysis cycle without submitting orders. Runs in the background — check logs for output.</p>
+    <div class="actions">
+        <form method="post" action="{{ url_for('controls_cycle', mode_param='paper') }}" style="display:inline">
+            <button type="submit" onclick="return confirm('Run a paper dry-run cycle now?')">
+                Run Paper Dry-Run
+            </button>
+        </form>
+        <form method="post" action="{{ url_for('controls_cycle', mode_param='live') }}" style="display:inline">
+            <button type="submit" onclick="return confirm('Run a LIVE dry-run cycle now? No orders will be submitted.')">
+                Run Live Dry-Run
+            </button>
+        </form>
+    </div>
+</section>
+
+{% if log_output %}
+<section>
+    <h3>Logs — {{ log_output.service }}</h3>
+    <pre class="logs">{{ log_output.content }}</pre>
+</section>
+{% endif %}
+
+{% if health %}
+<section>
+    <h3>Server Health</h3>
+    <div class="stats-grid">
+        {% if health.uptime %}
+        <div class="stat">
+            <div class="label">System</div>
+            <div class="value small">{{ health.uptime }}</div>
+        </div>
+        {% endif %}
+        {% if health.disk_used %}
+        <div class="stat">
+            <div class="label">Disk</div>
+            <div class="value">{{ health.disk_used }} / {{ health.disk_avail }} free</div>
+            <div class="sub">{{ health.disk_pct }} used</div>
+        </div>
+        {% endif %}
+        {% if health.mem_used_mb %}
+        <div class="stat">
+            <div class="label">Memory</div>
+            <div class="value">{{ health.mem_used_mb }} / {{ health.mem_total_mb }} MB</div>
+        </div>
+        {% endif %}
+    </div>
+</section>
+{% endif %}
+
+{% if audit %}
+<section>
+    <h3>Audit Log</h3>
+    <pre class="logs">{% for line in audit %}{{ line }}
+{% endfor %}</pre>
+</section>
+{% endif %}
+{% endblock %}
