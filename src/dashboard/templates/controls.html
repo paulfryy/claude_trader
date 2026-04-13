@@ -38,26 +38,36 @@
             <td>{{ svc.uptime or '—' }}</td>
             <td>{{ svc.memory }}</td>
             <td class="actions">
-                {% if svc.name != 'trading-dashboard' %}
-                    {% if svc.active %}
-                        <form method="post" action="{{ url_for('controls_restart', service=svc.name) }}" style="display:inline">
-                            <button type="submit" onclick="return confirm('Restart {{ svc.name }}?')">Restart</button>
-                        </form>
-                        <form method="post" action="{{ url_for('controls_stop', service=svc.name) }}" style="display:inline">
-                            <button type="submit" class="danger" onclick="return confirm('Stop {{ svc.name }}? This halts trading!')">Stop</button>
-                        </form>
-                    {% else %}
-                        <form method="post" action="{{ url_for('controls_start', service=svc.name) }}" style="display:inline">
-                            <button type="submit" class="accent">Start</button>
-                        </form>
-                    {% endif %}
+                {% if svc.name == 'trading-dashboard' %}
+                    <form method="post" action="{{ url_for('controls_restart', service=svc.name) }}" style="display:inline">
+                        <button type="submit" onclick="return confirm('Restart dashboard? This page will be unresponsive for ~5 seconds.')">Restart</button>
+                    </form>
+                    <form method="get" action="{{ url_for('controls_page') }}" style="display:inline">
+                        <input type="hidden" name="logs" value="{{ svc.name }}">
+                        <input type="hidden" name="mode" value="{{ mode }}">
+                        <button type="submit">View Logs</button>
+                    </form>
+                {% elif svc.active %}
+                    <form method="post" action="{{ url_for('controls_restart', service=svc.name) }}" style="display:inline">
+                        <button type="submit" onclick="return confirm('Restart {{ svc.name }}?')">Restart</button>
+                    </form>
+                    <form method="post" action="{{ url_for('controls_stop', service=svc.name) }}" style="display:inline">
+                        <button type="submit" class="danger" onclick="return confirm('Stop {{ svc.name }}? This halts trading!')">Stop</button>
+                    </form>
                     <form method="get" action="{{ url_for('controls_page') }}" style="display:inline">
                         <input type="hidden" name="logs" value="{{ svc.name }}">
                         <input type="hidden" name="mode" value="{{ mode }}">
                         <button type="submit">View Logs</button>
                     </form>
                 {% else %}
-                    <small class="muted">Self — manage via SSH</small>
+                    <form method="post" action="{{ url_for('controls_start', service=svc.name) }}" style="display:inline">
+                        <button type="submit" class="accent">Start</button>
+                    </form>
+                    <form method="get" action="{{ url_for('controls_page') }}" style="display:inline">
+                        <input type="hidden" name="logs" value="{{ svc.name }}">
+                        <input type="hidden" name="mode" value="{{ mode }}">
+                        <button type="submit">View Logs</button>
+                    </form>
                 {% endif %}
             </td>
         </tr>

@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 # Whitelist of services that can be controlled
 ALLOWED_SERVICES = {"trading-agent-paper", "trading-agent-live"}
+# Services that can be restarted but not stopped/started (dashboard manages itself)
+SELF_RESTART_SERVICES = {"trading-dashboard"}
 
 CONTROL_LOG = LOGS_BASE / "controls.log"
 
@@ -118,6 +120,25 @@ def get_service_status(service: str) -> dict:
 
 def restart_service(service: str) -> dict:
     """Restart a systemd service (requires passwordless sudo)."""
+    if service in SELF_RESTART_SERVICES:
+        # Deferred restart — fire off a background shell that waits 2 seconds
+        # so this HTTP response can complete before the process is killed.
+        try:
+            subprocess.Popen(
+                ["sh", "-c", f"sleep 2 && sudo systemctl restart {service}"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            _audit("restart", service, "scheduled", "deferred 2s")
+            return {
+                "success": True,
+                "message": f"{service} restart scheduled. Refresh in ~5 seconds.",
+            }
+        except Exception as e:
+            _audit("restart", service, "failed", str(e))
+            return {"success": False, "message": f"Failed: {e}"}
+
     if service not in ALLOWED_SERVICES:
         _audit("restart", service, "rejected", "not in whitelist")
         return {"success": False, "message": "Service not in whitelist"}

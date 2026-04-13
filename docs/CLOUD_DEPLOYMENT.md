@@ -322,6 +322,7 @@ Run this on the server:
 sudo tee /etc/sudoers.d/trading-agent-controls << 'EOF'
 ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl restart trading-agent-paper
 ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl restart trading-agent-live
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl restart trading-dashboard
 ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl start trading-agent-paper
 ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl start trading-agent-live
 ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl stop trading-agent-paper
