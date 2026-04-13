@@ -33,6 +33,7 @@ from src.logging_utils.trade_journal import TradeJournal
 from src.portfolio.portfolio import PortfolioTracker
 from src.portfolio.risk import RiskManager
 from src.portfolio.sizing import calculate_notional, calculate_options_contracts
+from src.portfolio.trailing_stops import evaluate_trailing_stops
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -329,6 +330,27 @@ def run_analysis_cycle(
             logger.info("Open stop orders: %s", list(open_stops.keys()) if open_stops else "none")
         except Exception as e:
             logger.warning("Failed to fetch open stops: %s", e)
+
+    # Step 4c: Auto-adjust trailing stops on winning positions
+    # Runs before Claude analyzes so she sees the updated stops
+    if not dry_run and positions:
+        try:
+            trailing_adjustments = evaluate_trailing_stops(positions, open_stops)
+            for symbol, new_stop, reason in trailing_adjustments:
+                logger.info("Trailing stop %s → $%.2f (%s)", symbol, new_stop, reason)
+                try:
+                    result = executor.update_stop_loss(symbol, new_stop)
+                    if result.get("status") == "submitted":
+                        # Update in-memory view so Claude sees the new stop
+                        open_stops[symbol] = {
+                            "order_id": result.get("order_id"),
+                            "stop_price": new_stop,
+                            "qty": result.get("qty"),
+                        }
+                except Exception as e:
+                    logger.warning("Failed to adjust trailing stop for %s: %s", symbol, e)
+        except Exception as e:
+            logger.warning("Trailing stop evaluation failed: %s", e)
 
     # Step 5: Run Claude analysis
     try:

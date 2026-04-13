@@ -451,6 +451,16 @@ section .actions {
     align-items: center;
 }
 
+/* Performance chart */
+.chart-container {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    height: 400px;
+    position: relative;
+}
+
 /* Diagnostics */
 .filter-form {
     display: flex;

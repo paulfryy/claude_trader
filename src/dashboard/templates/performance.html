@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% block title %}Performance — {{ mode|upper }}{% endblock %}
+
+{% block content %}
+<h2>Performance</h2>
+<p class="muted">Historical stats and equity curve from the trade journal and portfolio snapshots.</p>
+
+<section>
+    <h3>Portfolio Summary</h3>
+    <div class="stats-grid">
+        <div class="stat">
+            <div class="label">Current Equity</div>
+            <div class="value">{{ stats.portfolio.current_equity|fmt_money }}</div>
+            <div class="sub">Starting: {{ stats.starting_capital|fmt_money }}</div>
+        </div>
+        <div class="stat {% if stats.portfolio.total_return_pct > 0 %}positive{% elif stats.portfolio.total_return_pct < 0 %}negative{% endif %}">
+            <div class="label">Total Return</div>
+            <div class="value">{{ stats.portfolio.total_return_pct|fmt_pct }}</div>
+        </div>
+        {% if stats.spy %}
+        <div class="stat {% if stats.spy.alpha > 0 %}positive{% elif stats.spy.alpha < 0 %}negative{% endif %}">
+            <div class="label">Alpha vs SPY</div>
+            <div class="value">{{ stats.spy.alpha|fmt_pct }}</div>
+            <div class="sub">SPY: {{ stats.spy.spy_return_pct|fmt_pct }}</div>
+        </div>
+        {% endif %}
+        <div class="stat">
+            <div class="label">Max Drawdown</div>
+            <div class="value">{{ stats.portfolio.max_drawdown_pct|fmt_pct }}</div>
+            <div class="sub">From peak: {{ stats.portfolio.peak_equity|fmt_money }}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Sharpe Ratio</div>
+            <div class="value">
+                {% if stats.portfolio.sharpe is not none %}
+                    {{ "%.2f"|format(stats.portfolio.sharpe) }}
+                {% else %}—{% endif %}
+            </div>
+            <div class="sub">Annualized</div>
+        </div>
+        <div class="stat">
+            <div class="label">Days Active</div>
+            <div class="value">{{ stats.portfolio.days_active }}</div>
+        </div>
+    </div>
+</section>
+
+<section>
+    <h3>Equity Curve</h3>
+    {% if curve %}
+    <div class="chart-container">
+        <canvas id="equityChart"></canvas>
+    </div>
+    {% else %}
+    <p class="muted">No portfolio data yet.</p>
+    {% endif %}
+</section>
+
+<section>
+    <h3>Closed Trades</h3>
+    {% if stats.trades.total_trades > 0 %}
+    <div class="stats-grid">
+        <div class="stat">
+            <div class="label">Total Trades</div>
+            <div class="value">{{ stats.trades.total_trades }}</div>
+            <div class="sub">{{ stats.trades.wins }}W · {{ stats.trades.losses }}L</div>
+        </div>
+        <div class="stat {% if stats.trades.win_rate > 0.5 %}positive{% elif stats.trades.win_rate < 0.4 %}negative{% endif %}">
+            <div class="label">Win Rate</div>
+            <div class="value">{{ stats.trades.win_rate|fmt_pct(0) }}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Avg Win</div>
+            <div class="value positive">{{ stats.trades.avg_win|fmt_money }}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Avg Loss</div>
+            <div class="value negative">{{ stats.trades.avg_loss|fmt_money }}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Expectancy</div>
+            <div class="value {% if stats.trades.expectancy > 0 %}positive{% else %}negative{% endif %}">
+                {{ stats.trades.expectancy|fmt_money }}
+            </div>
+            <div class="sub">Per trade</div>
+        </div>
+        <div class="stat">
+            <div class="label">Profit Factor</div>
+            <div class="value">{{ "%.2f"|format(stats.trades.profit_factor) if stats.trades.profit_factor != float('inf') else '∞' }}</div>
+            <div class="sub">Gross wins / losses</div>
+        </div>
+        <div class="stat {% if stats.trades.total_realized_pl > 0 %}positive{% elif stats.trades.total_realized_pl < 0 %}negative{% endif %}">
+            <div class="label">Total Realized P&amp;L</div>
+            <div class="value">{{ stats.trades.total_realized_pl|fmt_money }}</div>
+        </div>
+    </div>
+
+    {% if stats.trades.best_trade or stats.trades.worst_trade %}
+    <h4 style="margin-top: 1.5rem;">Best and Worst</h4>
+    <table>
+        <tr>
+            <th></th>
+            <th>Symbol</th>
+            <th>P&amp;L</th>
+            <th>P&amp;L %</th>
+            <th>Rationale</th>
+        </tr>
+        {% if stats.trades.best_trade %}
+        <tr>
+            <td>Best</td>
+            <td class="symbol">{{ stats.trades.best_trade.symbol }}</td>
+            <td class="positive">{{ stats.trades.best_trade.realized_pl|fmt_money }}</td>
+            <td class="positive">{{ stats.trades.best_trade.realized_plpc|fmt_pct }}</td>
+            <td>{{ stats.trades.best_trade.rationale[:80] }}...</td>
+        </tr>
+        {% endif %}
+        {% if stats.trades.worst_trade %}
+        <tr>
+            <td>Worst</td>
+            <td class="symbol">{{ stats.trades.worst_trade.symbol }}</td>
+            <td class="negative">{{ stats.trades.worst_trade.realized_pl|fmt_money }}</td>
+            <td class="negative">{{ stats.trades.worst_trade.realized_plpc|fmt_pct }}</td>
+            <td>{{ stats.trades.worst_trade.rationale[:80] }}...</td>
+        </tr>
+        {% endif %}
+    </table>
+    {% endif %}
+
+    <h4 style="margin-top: 1.5rem;">All Closed Trades</h4>
+    <table>
+        <tr>
+            <th>Date</th>
+            <th>Symbol</th>
+            <th>P&amp;L</th>
+            <th>P&amp;L %</th>
+        </tr>
+        {% for t in stats.trades.closed_trades|reverse %}
+        <tr>
+            <td>{{ t.timestamp|fmt_date }} {{ t.timestamp|fmt_time }}</td>
+            <td class="symbol">{{ t.symbol }}</td>
+            <td class="{% if t.realized_pl > 0 %}positive{% elif t.realized_pl < 0 %}negative{% endif %}">
+                {{ t.realized_pl|fmt_money }}
+            </td>
+            <td class="{% if t.realized_plpc > 0 %}positive{% elif t.realized_plpc < 0 %}negative{% endif %}">
+                {{ t.realized_plpc|fmt_pct }}
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+    {% else %}
+    <p class="muted">No closed trades yet. Stats will populate as positions are closed.</p>
+    {% endif %}
+</section>
+
+{% if curve %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const chartData = {{ chart_data|tojson }};
+const startingCapital = {{ stats.starting_capital }};
+
+const ctx = document.getElementById('equityChart').getContext('2d');
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: chartData.labels,
+        datasets: [
+            {
+                label: 'Portfolio Equity',
+                data: chartData.equity,
+                borderColor: '#5e9fef',
+                backgroundColor: 'rgba(94, 159, 239, 0.1)',
+                fill: true,
+                tension: 0.2,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+            },
+            {
+                label: 'Starting Capital',
+                data: chartData.labels.map(() => startingCapital),
+                borderColor: '#8b93a7',
+                borderDash: [5, 5],
+                pointRadius: 0,
+                fill: false,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                labels: { color: '#e5e9f0' }
+            },
+            tooltip: {
+                callbacks: {
+                    label: function(ctx) {
+                        const value = ctx.parsed.y;
+                        const pct = ((value - startingCapital) / startingCapital * 100).toFixed(2);
+                        return `${ctx.dataset.label}: $${value.toLocaleString()} (${pct >= 0 ? '+' : ''}${pct}%)`;
+                    }
+                }
+            }
+        },
+        scales: {
+            x: { ticks: { color: '#8b93a7' }, grid: { color: '#2a3340' } },
+            y: {
+                ticks: {
+                    color: '#8b93a7',
+                    callback: function(value) { return '$' + value.toLocaleString(); }
+                },
+                grid: { color: '#2a3340' }
+            }
+        }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

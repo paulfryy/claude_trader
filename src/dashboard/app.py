@@ -24,6 +24,7 @@ from src.config import get_decision_logs_dir, get_logs_dir, get_summary_dir, loa
 from src.dashboard import controls
 from src.data.market_data import MarketDataClient
 from src.logging_utils.anomaly_log import ANOMALY_TYPES, count_by_type, read_anomalies
+from src.logging_utils.performance import PerformanceAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -396,6 +397,31 @@ def cycle_detail(filename: str):
         abort(500)
 
     return render_template("cycle_detail.html", mode=mode, data=data, filename=filename)
+
+
+@app.route("/performance")
+def performance():
+    mode = get_mode()
+    settings = load_env_for_mode(mode)
+    analyzer = PerformanceAnalyzer(settings)
+
+    stats = analyzer.get_combined_stats()
+    curve = analyzer.get_equity_curve()
+
+    # Pre-compute chart data in a format easy for Chart.js
+    chart_data = {
+        "labels": [p["date"] for p in curve],
+        "equity": [round(p["equity"], 2) for p in curve],
+        "drawdown": [round(p["drawdown_pct"] * 100, 2) for p in curve],
+    }
+
+    return render_template(
+        "performance.html",
+        mode=mode,
+        stats=stats,
+        curve=curve,
+        chart_data=chart_data,
+    )
 
 
 @app.route("/diagnostics")
