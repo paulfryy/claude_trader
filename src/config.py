@@ -78,6 +78,7 @@ class ClaudeSettings(BaseSettings):
 
     anthropic_api_key: str = ""
     claude_model: str = "claude-sonnet-4-20250514"
+    finnhub_api_key: str = ""  # Optional — for earnings calendar
 
 
 class RiskSettings(BaseSettings):

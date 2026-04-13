@@ -32,6 +32,7 @@ class ClaudeAnalyst:
         symbol_news: dict[str, list[dict]],
         cycle_mode: str = "morning",
         open_stops: dict[str, dict] | None = None,
+        earnings_data: dict[str, dict] | None = None,
     ) -> MarketAnalysis:
         """
         Run a full market analysis cycle.
@@ -53,6 +54,7 @@ class ClaudeAnalyst:
             symbol_news=symbol_news,
             cycle_mode=cycle_mode,
             open_stops=open_stops or {},
+            earnings_data=earnings_data or {},
         )
 
         logger.info("Sending analysis request to Claude (%s, %s mode)", self._model, cycle_mode)
@@ -176,6 +178,7 @@ STRATEGY:
 - Swing trading US equities and ETFs (hold 2-14 days typically)
 - Focus on high-probability setups with favorable risk/reward (>2:1)
 - Preserve capital — don't force trades when conditions are unclear
+- **Earnings awareness**: Check the UPCOMING EARNINGS section. Never open a new swing position that would be held through an earnings report unless it's explicitly a catalyst trade (is_catalyst_trade=true). For existing positions with upcoming earnings, decide to exit before the report or explicitly hold through it with a stated rationale.
 - Deploy capital based on market regime:
   * Bull regime: 70-90% deployed — lean into momentum, find strong setups
   * Sideways regime: 50-70% deployed — be selective, tighter criteria
@@ -268,6 +271,7 @@ Be decisive but disciplined. Every trade must have a clear rationale and exit pl
         symbol_news: dict[str, list[dict]],
         cycle_mode: str = "morning",
         open_stops: dict[str, dict] | None = None,
+        earnings_data: dict[str, dict] | None = None,
     ) -> str:
         sections = []
 
@@ -303,6 +307,30 @@ Be decisive but disciplined. Every trade must have a clear rationale and exit pl
                 sections.append(json.dumps(data["indicators"], indent=2, default=str))
             if "quote" in data:
                 sections.append(f"Latest Quote: {json.dumps(data['quote'], default=str)}")
+
+        # Upcoming earnings (next 14 days) — critical for holding/exit decisions
+        if earnings_data:
+            sections.append("\n## UPCOMING EARNINGS (next 14 days)")
+            sections.append(
+                "These symbols have earnings reports coming. Earnings are binary events "
+                "that can move the stock 10-20% overnight. For current HOLDINGS, decide "
+                "whether to exit before the report or explicitly hold as a catalyst play. "
+                "For NEW buys, avoid opening a position that would hold through earnings "
+                "unless you explicitly flag it as a catalyst trade."
+            )
+            # Sort by days away
+            sorted_earnings = sorted(earnings_data.items(), key=lambda x: x[1].get("days_away", 999))
+            for sym, info in sorted_earnings:
+                days = info.get("days_away", "?")
+                hour = info.get("hour", "")
+                hour_label = {"bmo": "before market open", "amc": "after market close", "dmh": "during market hours"}.get(hour, "time TBD")
+                eps = info.get("eps_estimate")
+                eps_str = f", EPS est ${eps:.2f}" if eps else ""
+                is_held = any(p.get("symbol") == sym for p in positions)
+                held_marker = " [CURRENTLY HELD]" if is_held else ""
+                sections.append(
+                    f"- **{sym}**{held_marker}: reports in {days} day(s) ({info.get('date')}, {hour_label}){eps_str}"
+                )
 
         # News
         sections.append("\n## MARKET NEWS")

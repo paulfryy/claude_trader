@@ -16,6 +16,7 @@ from rich.logging import RichHandler
 from src.analysis.analyst import ClaudeAnalyst
 from src.analysis.signals import TradeAction
 from src.config import load_settings
+from src.data.earnings_calendar import EarningsCalendarClient
 from src.data.indicators import add_all_indicators, summarize_indicators
 from src.data.market_data import MarketDataClient
 from src.data.news import NewsDataClient
@@ -26,6 +27,7 @@ from src.logging_utils.anomaly_log import log_anomaly
 from src.logging_utils.benchmark import get_benchmark_data
 from src.logging_utils.daily_summary import write_daily_summary
 from src.logging_utils.decision_log import DecisionLog
+from src.logging_utils.email_report import send_eod_report_email
 from src.logging_utils.eod_report import generate_eod_report
 from src.logging_utils.trade_journal import TradeJournal
 from src.portfolio.portfolio import PortfolioTracker
@@ -207,6 +209,7 @@ def run_analysis_cycle(
         risk_manager = RiskManager(settings)
         executor = OrderExecutor(settings)
         options_chain = OptionsChainClient(settings)
+        earnings_client = EarningsCalendarClient(api_key=settings.claude.finnhub_api_key)
         screener = Screener(settings)
         trade_journal = TradeJournal(settings)
         decision_log = DecisionLog(settings)
@@ -302,6 +305,22 @@ def run_analysis_cycle(
         except Exception as e:
             logger.warning("Failed to fetch news for %s: %s", symbol, e)
 
+    # Step 4c: Fetch upcoming earnings for positions + watchlist (next 14 days)
+    earnings_data = {}
+    try:
+        # Equity symbols only — skip OCC option symbols (len > 10)
+        earnings_lookup_symbols = list(set(
+            [p["symbol"] for p in positions if len(p["symbol"]) <= 6]
+            + [s for s in watchlist if len(s) <= 6]
+        ))
+        earnings_data = earnings_client.get_upcoming_earnings(
+            symbols=earnings_lookup_symbols, days_ahead=14,
+        )
+        if earnings_data:
+            logger.info("Earnings upcoming: %s", list(earnings_data.keys()))
+    except Exception as e:
+        logger.warning("Failed to fetch earnings calendar: %s", e)
+
     # Step 4b: Get existing stop orders so Claude can see current protection
     open_stops = {}
     if not dry_run:
@@ -322,6 +341,7 @@ def run_analysis_cycle(
             symbol_news=symbol_news,
             cycle_mode=mode,
             open_stops=open_stops,
+            earnings_data=earnings_data,
         )
     except json.JSONDecodeError as e:
         logger.error("Claude returned invalid JSON: %s", e)
@@ -877,14 +897,19 @@ def run_analysis_cycle(
         trading_mode=settings.trading_mode,
     )
 
-    # Step 12: Generate end-of-day report (closing cycle only)
+    # Step 12: Generate end-of-day report + email it (closing cycle only)
     if mode == CycleMode.CLOSING:
         try:
-            generate_eod_report(
+            report_path = generate_eod_report(
                 settings=settings,
                 portfolio_state=post_state,
                 benchmark=benchmark,
             )
+            if report_path:
+                try:
+                    send_eod_report_email(report_path, settings.trading_mode)
+                except Exception as email_err:
+                    logger.warning("Failed to email EOD report: %s", email_err)
         except Exception as e:
             logger.error("Failed to generate EOD report: %s", e)
 

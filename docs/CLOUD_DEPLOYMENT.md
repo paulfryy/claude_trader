@@ -341,7 +341,113 @@ If it doesn't prompt for a password, it's working.
 
 ---
 
-## Optional: Log Backup to S3
+## Recommended: Log Backup to S3
+
+Protects your logs, summaries, reports, and trade history from disk failures
+or instance termination. Costs roughly $0.02/month for the data volumes we generate.
+
+### Step 1: Create an S3 Bucket
+
+1. In the AWS Console, go to **S3** → **Create bucket**
+2. Bucket name: `trading-agent-logs-<your-unique-suffix>` (S3 bucket names must be globally unique)
+3. Region: same as your EC2 instance (us-east-1)
+4. Keep **Block all public access** enabled
+5. Enable **Versioning** (lets you recover deleted files)
+6. Click **Create bucket**
+
+### Step 2: Create an IAM Role for the EC2 Instance
+
+1. Go to **IAM** → **Roles** → **Create role**
+2. Trusted entity: **AWS service** → **EC2**
+3. Click **Next**
+4. Don't attach any policies yet, click **Next**
+5. Role name: `trading-agent-s3-sync`
+6. Click **Create role**
+7. Open the new role, click **Add permissions** → **Create inline policy**
+8. Switch to JSON tab and paste (replace `YOUR-BUCKET-NAME`):
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:DeleteObject"
+            ],
+            "Resource": [
+                "arn:aws:s3:::YOUR-BUCKET-NAME",
+                "arn:aws:s3:::YOUR-BUCKET-NAME/*"
+            ]
+        }
+    ]
+}
+```
+
+9. Review, name it `trading-agent-s3-sync-policy`, click **Create policy**
+
+### Step 3: Attach the Role to Your EC2 Instance
+
+1. Go to **EC2** → **Instances** → click your instance
+2. **Actions** → **Security** → **Modify IAM role**
+3. Select `trading-agent-s3-sync`
+4. Click **Update IAM role**
+
+### Step 4: Install AWS CLI on EC2 (if not already installed)
+
+```bash
+which aws || sudo dnf install -y awscli
+aws --version
+```
+
+### Step 5: Test the Sync
+
+```bash
+export BUCKET=trading-agent-logs-your-unique-suffix
+aws s3 sync /home/ec2-user/claude_agent/logs/ s3://$BUCKET/logs/ --quiet
+aws s3 ls s3://$BUCKET/logs/
+```
+
+You should see your log directories listed.
+
+### Step 6: Schedule Daily Syncs
+
+Open the user's cron:
+
+```bash
+crontab -e
+```
+
+Add these lines (replace `YOUR-BUCKET-NAME`):
+
+```cron
+# Sync logs to S3 every day at 5 PM ET (after close)
+0 17 * * 1-5 /usr/bin/aws s3 sync /home/ec2-user/claude_agent/logs/ s3://YOUR-BUCKET-NAME/logs/ --quiet >> /home/ec2-user/claude_agent/logs/s3-sync.log 2>&1
+
+# Weekly full sync on Saturdays (catches anything missed)
+0 2 * * 6 /usr/bin/aws s3 sync /home/ec2-user/claude_agent/logs/ s3://YOUR-BUCKET-NAME/logs/ >> /home/ec2-user/claude_agent/logs/s3-sync.log 2>&1
+```
+
+Save and exit. Verify:
+
+```bash
+crontab -l
+```
+
+### Step 7: Restoring from Backup
+
+If your instance dies or logs are lost:
+
+```bash
+aws s3 sync s3://YOUR-BUCKET-NAME/logs/ /home/ec2-user/claude_agent/logs/
+```
+
+---
+
+## Legacy: Log Backup to S3 (old instructions)
 
 Back up logs daily so you don't lose them if the server dies:
 
