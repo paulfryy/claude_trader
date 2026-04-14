@@ -50,10 +50,10 @@ class Screener:
         universe = get_universe()
         anchors = get_anchor_symbols()
 
-        # Compute SPY's 10-day return for relative strength filtering
-        spy_return_10d = self._get_spy_10d_return()
-        if spy_return_10d is not None:
-            logger.info("SPY 10-day return: %.2f%% (used for relative strength filter)", spy_return_10d * 100)
+        # Compute SPY's 5-day return for relative strength filtering
+        spy_return_5d = self._get_spy_5d_return()
+        if spy_return_5d is not None:
+            logger.info("SPY 5-day return: %.2f%% (used for relative strength filter)", spy_return_5d * 100)
 
         # Tier 1: Quick filter on price and volume
         logger.info("Tier 1: Scanning %d symbols (snapshots)...", len(universe))
@@ -62,7 +62,7 @@ class Screener:
 
         # Tier 2: Fetch bars + indicators, apply signal filters + relative strength
         logger.info("Tier 2: Analyzing %d symbols (bars + indicators)...", len(tier1_passed))
-        scored = self._tier2_filter(tier1_passed, spy_return_10d=spy_return_10d)
+        scored = self._tier2_filter(tier1_passed, spy_return_5d=spy_return_5d)
         logger.info("Tier 2: %d symbols have actionable signals", len(scored))
 
         # Sort by score descending, take top N
@@ -139,7 +139,7 @@ class Screener:
         return passed, by_volume
 
     def _tier2_filter(
-        self, symbols: list[str], spy_return_10d: float | None = None,
+        self, symbols: list[str], spy_return_5d: float | None = None,
     ) -> list[tuple[str, float]]:
         """
         Tier 2: Fetch bars, compute indicators, score signals, and filter by
@@ -176,18 +176,27 @@ class Screener:
                     if len(sym_df) < 20:
                         continue
 
-                    # Relative strength: 10-day return of this symbol vs SPY
-                    # Only boost/filter when we have SPY data to compare against
+                    # Relative strength: 5-day return of this symbol vs SPY
+                    # Shorter window (5 days) is more responsive and less biased
+                    # by a single big-move day in SPY.
+                    # Requirements:
+                    #   - Stock must be up at least 1% absolute (no flat stocks)
+                    #   - Stock must not lag SPY by more than 2%
                     rs_boost = 0.0
-                    if spy_return_10d is not None and len(sym_df) >= 11:
-                        sym_return_10d = (sym_df["close"].iloc[-1] - sym_df["close"].iloc[-11]) / sym_df["close"].iloc[-11]
-                        rel_strength = sym_return_10d - spy_return_10d
-                        # Skip stocks lagging SPY by more than 1% — market beta, not alpha
-                        if rel_strength < -0.01:
+                    if spy_return_5d is not None and len(sym_df) >= 6:
+                        sym_return_5d = (sym_df["close"].iloc[-1] - sym_df["close"].iloc[-6]) / sym_df["close"].iloc[-6]
+
+                        # Absolute floor: must actually be moving up
+                        if sym_return_5d < 0.01:
                             continue
-                        # Boost score proportionally to outperformance
-                        # +2% outperformance = +2 points, +5% = +5 points
-                        rs_boost = rel_strength * 100
+
+                        rel_strength = sym_return_5d - spy_return_5d
+                        # Tolerate a small lag — don't require perfect outperformance
+                        if rel_strength < -0.02:
+                            continue
+
+                        # Score boost: 1 point per 1% of outperformance (smaller boost for shorter window)
+                        rs_boost = max(0, rel_strength) * 100
 
                     sym_df = add_all_indicators(sym_df)
                     score = self._score_signals(sym_df) + rs_boost
@@ -199,10 +208,10 @@ class Screener:
 
         return scored
 
-    def _get_spy_10d_return(self) -> float | None:
-        """Fetch SPY's 10-day return for relative strength comparison."""
+    def _get_spy_5d_return(self) -> float | None:
+        """Fetch SPY's 5-day return for relative strength comparison."""
         try:
-            start = datetime.now() - timedelta(days=30)
+            start = datetime.now() - timedelta(days=15)
             request = StockBarsRequest(
                 symbol_or_symbols="SPY",
                 timeframe=TimeFrame.Day,
@@ -210,13 +219,13 @@ class Screener:
             )
             bars = self._client.get_stock_bars(request)
             df = bars.df
-            if df.empty or len(df) < 11:
+            if df.empty or len(df) < 6:
                 return None
             if isinstance(df.index, pd.MultiIndex):
                 df = df.reset_index(level="symbol", drop=True)
-            return (df["close"].iloc[-1] - df["close"].iloc[-11]) / df["close"].iloc[-11]
+            return (df["close"].iloc[-1] - df["close"].iloc[-6]) / df["close"].iloc[-6]
         except Exception as e:
-            logger.debug("SPY 10d return fetch failed: %s", e)
+            logger.debug("SPY 5d return fetch failed: %s", e)
             return None
 
     def _score_signals(self, df: pd.DataFrame) -> float:

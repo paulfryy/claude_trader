@@ -961,7 +961,7 @@ def run_analysis_cycle(
         except Exception as e:
             logger.error("Failed to generate EOD report: %s", e)
 
-    executed = sum(1 for r in execution_results if r.get("status") in ("submitted", "dry_run"))
+    executed = sum(1 for r in execution_results if r.get("status") in ("submitted", "closed", "dry_run"))
     errored = sum(1 for r in execution_results if r.get("status") == "error")
     logger.info(
         "=== %sCycle complete: %d trades executed, %d errors, %d rejected ===",
