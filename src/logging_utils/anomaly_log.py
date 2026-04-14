@@ -38,6 +38,7 @@ ANOMALY_TYPES = {
     "stop_loss_skipped": "Stop-loss skipped (fractional position)",
     "order_error": "Order submission failed",
     "wash_trade_error": "Wash trade protection blocked order",
+    "close_failed": "Position close failed (Alpaca rejected)",
 
     # Claude
     "claude_parse_error": "Failed to parse Claude's JSON response",

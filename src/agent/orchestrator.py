@@ -428,7 +428,11 @@ def run_analysis_cycle(
         else:
             try:
                 # Cancel any stop orders first — they hold shares and block the close
+                # Wait for Alpaca to release the held quantity before trying to close
                 executor._cancel_existing_stops(symbol)
+                import time
+                time.sleep(1.0)
+
                 result = executor.close_position(symbol)
                 # Capture realized P&L — what was unrealized just became realized
                 result["realized_pl"] = pre_close_pl
@@ -441,12 +445,24 @@ def run_analysis_cycle(
                 if result.get("status") == "closed":
                     closed_this_cycle.add(symbol)
                     cycle_freed_exposure_pct += closed_value / equity
-                    # Check if it was an options position (long symbol = OCC)
                     if len(symbol) > 10:
                         cycle_freed_options_value += closed_value
+                elif result.get("status") == "error":
+                    log_anomaly(
+                        settings, "close_failed",
+                        f"{symbol}: close failed — {result.get('error', 'unknown')}",
+                        severity="error", cycle_mode=mode, symbol=symbol,
+                        context={"error": result.get("error"), "source": "positions_to_close"},
+                    )
             except Exception as e:
                 logger.error("Failed to close position %s: %s", symbol, e)
                 execution_results.append({"status": "error", "symbol": symbol, "error": str(e)})
+                log_anomaly(
+                    settings, "close_failed",
+                    f"{symbol}: close exception — {e}",
+                    severity="error", cycle_mode=mode, symbol=symbol,
+                    context={"error": str(e), "source": "positions_to_close"},
+                )
 
     # Step 7: Validate and execute new trade signals
     rejected_signals = []
@@ -532,11 +548,21 @@ def run_analysis_cycle(
                     "realized_pl": pre_close_pl, "realized_plpc": pre_close_plpc,
                 }
             else:
-                # Cancel any existing stop orders first
+                # Cancel any existing stop orders first, wait for Alpaca to release held qty
                 executor._cancel_existing_stops(signal.symbol)
+                import time
+                time.sleep(1.0)
+
                 result = executor.close_position(signal.symbol)
                 result["realized_pl"] = pre_close_pl
                 result["realized_plpc"] = pre_close_plpc
+                if result.get("status") == "error":
+                    log_anomaly(
+                        settings, "close_failed",
+                        f"{signal.symbol}: close failed — {result.get('error', 'unknown')}",
+                        severity="error", cycle_mode=mode, symbol=signal.symbol,
+                        context={"error": result.get("error"), "source": "sell_signal"},
+                    )
             execution_results.append(result)
             trade_journal.log_trade(
                 signal=signal, execution_result=result,
