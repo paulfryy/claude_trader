@@ -408,6 +408,23 @@ def performance():
     stats = analyzer.get_combined_stats()
     curve = analyzer.get_equity_curve()
 
+    # Overlay live equity onto the portfolio summary so the cards reflect
+    # reality even if the latest snapshot is stale (e.g. just after a deposit
+    # or before the next scheduled cycle writes a new snapshot).
+    live_account, live_positions = get_live_portfolio(mode)
+    if live_account and live_positions is not None:
+        if mode == "paper":
+            live_equity = get_capital_base(settings) + sum(p["unrealized_pl"] for p in live_positions)
+        else:
+            live_equity = live_account["equity"]
+        capital_base = stats["capital_base"]
+        stats["portfolio"]["current_equity"] = live_equity
+        stats["portfolio"]["total_return_pct"] = (
+            (live_equity - capital_base) / capital_base if capital_base > 0 else 0
+        )
+        if live_equity > stats["portfolio"].get("peak_equity", 0):
+            stats["portfolio"]["peak_equity"] = live_equity
+
     # Pre-compute chart data in a format easy for Chart.js
     chart_data = {
         "labels": [p["date"] for p in curve],
