@@ -61,7 +61,7 @@ class TradeSignal(BaseModel):
     @field_validator("position_size_pct", mode="before")
     @classmethod
     def _coerce_none_size(cls, v):
-        """Claude sometimes returns null for sells/holds. Coerce to 0."""
+        """Claude sometimes returns null (valid for sells/holds, not for buys)."""
         return 0.0 if v is None else v
 
     @field_validator("conviction", mode="before")

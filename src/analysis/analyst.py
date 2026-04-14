@@ -255,6 +255,7 @@ You must respond with valid JSON matching this schema:
             "target_price": 150.00,
             "stop_loss_price": 140.00,
             "position_size_pct": 0.10,
+            "//note": "position_size_pct REQUIRED on every signal. For sells/holds, use 0.0 (not null). Never use null for this field.",
             "rationale": "Why this trade makes sense",
             "time_horizon": "3-5 days",
             "risk_reward_ratio": 2.5,
@@ -526,5 +527,26 @@ If none of the affordable contracts are a good fit for your thesis, respond with
         text = text.strip()
 
         data = json.loads(text)
+
+        # Detect and log malformed signals before Pydantic validators silently coerce.
+        # This surfaces prompt issues in the anomaly log so we can fix the root cause.
+        for i, sig in enumerate(data.get("trade_signals", [])):
+            issues = []
+            if sig.get("position_size_pct") is None:
+                issues.append("position_size_pct=null")
+            if sig.get("conviction") is None:
+                issues.append("conviction=null")
+            if issues:
+                from src.logging_utils.anomaly_log import log_anomaly
+                log_anomaly(
+                    self.settings,
+                    "claude_bad_signal",
+                    f"Signal #{i} ({sig.get('symbol', '?')} {sig.get('action', '?')}) has: {', '.join(issues)}",
+                    severity="warning",
+                    cycle_mode="analysis",
+                    symbol=sig.get("symbol"),
+                    context={"issues": issues, "signal": sig},
+                )
+
         data["raw_analysis"] = raw_response
         return MarketAnalysis(**data)
