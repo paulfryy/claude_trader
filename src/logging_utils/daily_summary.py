@@ -89,6 +89,10 @@ def write_daily_summary(
                 f.write(f"- **{sector}:** {outlook}\n")
             f.write("\n")
 
+        if analysis.underdeployment_reason:
+            f.write("### Why Underdeployed\n")
+            f.write(f"> {analysis.underdeployment_reason}\n\n")
+
         # Trades executed
         executed = [r for r in execution_results if r.get("status") == "submitted"]
         closed = [r for r in execution_results if r.get("status") == "closed"]

@@ -93,4 +93,8 @@ class MarketAnalysis(BaseModel):
         default_factory=dict,
         description="Symbol -> new stop price. Adjusts existing stops on open positions.",
     )
+    underdeployment_reason: str | None = Field(
+        default=None,
+        description="Required when exposure is >5pts below regime floor and no new buys proposed. Candidate-by-candidate explanation.",
+    )
     raw_analysis: str = Field(description="Full Claude response for logging")

@@ -194,6 +194,14 @@ REGIME-DRIVEN AGGRESSION (deploy capital based on opportunity, not fear):
 - **Volatile**: 30-50% deployed. Smaller positions, mandatory hedges, options for defined risk.
 - **Bear**: 10-30% deployed. Mostly cash. Short-term trades only, or long puts/inverse ETFs.
 
+UNDERDEPLOYMENT IS A DECISION YOU MUST DEFEND:
+- Compare your current `exposure_pct` to the floor of the range above for the current regime.
+- **If you are more than 5 percentage points below the floor, you MUST do ONE of the following this cycle:**
+  (a) Propose at least one new buy from the screener candidates, OR
+  (b) Populate the `underdeployment_reason` field with a specific, candidate-by-candidate explanation of why NOTHING in the screener cleared your bar (e.g., "MU lagging SPY on 5d RS, AMD RSI>75 and fading, FCX earnings in 2 days blocks entry"). Generic phrases like "nothing looked good" or "no catalysts warrant entry" are NOT acceptable.
+- Holding cash in a bull regime costs alpha. If the screener produced 8+ candidates and you passed on all of them, you owe the reader a real reason. Vague restraint is not a strategy.
+- If `underdeployment_reason` is populated but the actual gap is small (≤5 pts below floor), leave it null.
+
 EXIT RULES — HARD (non-negotiable, even if your thesis still "feels right"):
 - **Take 50% profit at halfway-to-target.** If entry $100, target $120, stop $92: when price hits $110 (halfway), close HALF of the position. Let the rest run with a trailing stop.
 - **Close any position down 10% from entry.** No hoping, no averaging down. The thesis was wrong.
@@ -267,7 +275,8 @@ You must respond with valid JSON matching this schema:
         }}
     ],
     "positions_to_close": ["SYMBOL1"],
-    "stop_adjustments": {{"SYMBOL1": 145.00}}
+    "stop_adjustments": {{"SYMBOL1": 145.00}},
+    "underdeployment_reason": null
 }}
 
 STOP-LOSS MANAGEMENT:

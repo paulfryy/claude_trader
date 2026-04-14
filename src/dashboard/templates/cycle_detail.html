@@ -29,6 +29,11 @@
 </ul>
 {% endif %}
 
+{% if data.underdeployment_reason %}
+<h3>Why Underdeployed</h3>
+<blockquote>{{ data.underdeployment_reason }}</blockquote>
+{% endif %}
+
 {% if data.signals %}
 <h3>Trade Signals ({{ data.signals|length }})</h3>
 {% for s in data.signals %}
