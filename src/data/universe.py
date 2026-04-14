@@ -96,11 +96,11 @@ MAJOR_ETFS = [
 # This is a coarse mapping; covers most common tickers we trade.
 # Unknown symbols fall into "other" and are lenient (no concentration limit).
 SECTOR_MAP = {
-    # Technology
-    "AAPL": "technology", "MSFT": "technology", "NVDA": "technology", "GOOGL": "technology",
-    "GOOG": "technology", "META": "technology", "AMZN": "technology", "TSLA": "technology",
+    # Technology (GICS: Information Technology — hardware, software, semiconductors)
+    # Note: AMZN/TSLA = Consumer Discretionary, GOOGL/META/NFLX = Communications per GICS
+    "AAPL": "technology", "MSFT": "technology", "NVDA": "technology",
     "AMD": "technology", "INTC": "technology", "ORCL": "technology", "CRM": "technology",
-    "ADBE": "technology", "NFLX": "technology", "AVGO": "technology", "QCOM": "technology",
+    "ADBE": "technology", "AVGO": "technology", "QCOM": "technology",
     "CSCO": "technology", "IBM": "technology", "TXN": "technology", "MU": "technology",
     "SMCI": "technology", "PLTR": "technology", "CRWD": "technology", "PANW": "technology",
     "NOW": "technology", "SNOW": "technology", "DELL": "technology", "HPE": "technology",
@@ -140,7 +140,8 @@ SECTOR_MAP = {
     "HCA": "healthcare", "MCK": "healthcare", "COR": "healthcare", "CNC": "healthcare",
     "XLV": "healthcare", "IBB": "healthcare", "XBI": "healthcare",
 
-    # Consumer Discretionary
+    # Consumer Discretionary (GICS)
+    "AMZN": "consumer_disc", "TSLA": "consumer_disc",
     "HD": "consumer_disc", "MCD": "consumer_disc", "NKE": "consumer_disc",
     "LOW": "consumer_disc", "SBUX": "consumer_disc", "TJX": "consumer_disc",
     "BKNG": "consumer_disc", "ABNB": "consumer_disc", "MAR": "consumer_disc",
@@ -186,7 +187,10 @@ SECTOR_MAP = {
     "DLR": "real_estate", "VICI": "real_estate", "AVB": "real_estate", "EQR": "real_estate",
     "HST": "real_estate", "XLRE": "real_estate",
 
-    # Communications / Media
+    # Communications / Media (GICS: Communication Services)
+    # Includes FAANG-adjacent: GOOGL, GOOG, META, NFLX all live here, not tech
+    "GOOGL": "communications", "GOOG": "communications",
+    "META": "communications", "NFLX": "communications",
     "T": "communications", "VZ": "communications", "TMUS": "communications",
     "CMCSA": "communications", "DIS": "communications", "WBD": "communications",
     "CHTR": "communications", "EA": "communications", "TTWO": "communications",
