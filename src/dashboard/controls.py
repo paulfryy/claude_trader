@@ -13,7 +13,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from src.config import LOGS_BASE, PROJECT_ROOT
+from src.config import LOGS_BASE, PROJECT_ROOT, load_settings
+from src.logging_utils.deposits import get_capital_base, record_deposit
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,10 @@ ALLOWED_SERVICES = {"trading-agent-paper", "trading-agent-live"}
 SELF_RESTART_SERVICES = {"trading-dashboard"}
 
 CONTROL_LOG = LOGS_BASE / "controls.log"
+
+# In-memory cooldown for manual cycle triggers (seconds between real cycles)
+_LAST_REAL_CYCLE: dict[str, datetime] = {}
+REAL_CYCLE_COOLDOWN_SEC = 300
 
 
 def _audit(action: str, target: str, result: str, details: str = ""):
@@ -237,9 +242,22 @@ def trigger_manual_cycle(mode: str, dry_run: bool = True) -> dict:
     """
     Trigger a manual analysis cycle in the background.
     Defaults to dry-run for safety; set dry_run=False for a real cycle.
+    Real cycles are rate-limited per mode (REAL_CYCLE_COOLDOWN_SEC).
     """
     if mode not in ("paper", "live"):
         return {"success": False, "message": "Invalid mode"}
+
+    if not dry_run:
+        last = _LAST_REAL_CYCLE.get(mode)
+        if last is not None:
+            elapsed = (datetime.now() - last).total_seconds()
+            if elapsed < REAL_CYCLE_COOLDOWN_SEC:
+                wait = int(REAL_CYCLE_COOLDOWN_SEC - elapsed)
+                _audit("manual_cycle", mode, "rate_limited", f"wait {wait}s")
+                return {
+                    "success": False,
+                    "message": f"Cooldown: wait {wait}s before triggering another real {mode} cycle.",
+                }
 
     env_file = f".env.{mode}"
     python = shutil.which("python3.11") or shutil.which("python3") or "python"
@@ -258,6 +276,8 @@ def trigger_manual_cycle(mode: str, dry_run: bool = True) -> dict:
             env={"PATH": "/usr/bin:/usr/local/bin", "SKIP_LIVE_CONFIRM": "true", "HOME": "/home/ec2-user"},
             start_new_session=True,
         )
+        if not dry_run:
+            _LAST_REAL_CYCLE[mode] = datetime.now()
         _audit("manual_cycle", mode, "started", "dry_run" if dry_run else "LIVE")
         label = "dry-run" if dry_run else "LIVE"
         return {
@@ -266,6 +286,39 @@ def trigger_manual_cycle(mode: str, dry_run: bool = True) -> dict:
         }
     except Exception as e:
         _audit("manual_cycle", mode, "failed", str(e))
+        return {"success": False, "message": f"Failed: {e}"}
+
+
+def submit_deposit(mode: str, amount: float, note: str = "") -> dict:
+    """
+    Record a cash deposit or withdrawal to the deposits log for the given mode.
+    Positive = deposit, negative = withdrawal. Returns dict with success + new capital base.
+    """
+    if mode not in ("paper", "live"):
+        _audit("deposit", mode, "rejected", "invalid mode")
+        return {"success": False, "message": "Invalid mode"}
+
+    if amount == 0 or amount is None:
+        return {"success": False, "message": "Amount must be non-zero"}
+
+    if abs(amount) > 1_000_000:
+        _audit("deposit", mode, "rejected", f"amount {amount} exceeds sanity cap")
+        return {"success": False, "message": "Amount exceeds $1,000,000 sanity cap"}
+
+    try:
+        entry = record_deposit(mode, amount, note)
+        settings = load_settings(env_file=f".env.{mode}")
+        new_base = get_capital_base(settings)
+        _audit("deposit", mode, "ok", f"${amount:,.2f} — {note[:60]}")
+        action = "Deposit" if amount >= 0 else "Withdrawal"
+        return {
+            "success": True,
+            "message": f"{action} of ${abs(amount):,.2f} recorded. New capital base: ${new_base:,.2f}",
+            "entry": entry,
+            "new_base": new_base,
+        }
+    except Exception as e:
+        _audit("deposit", mode, "failed", str(e))
         return {"success": False, "message": f"Failed: {e}"}
 
 

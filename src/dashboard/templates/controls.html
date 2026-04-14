@@ -93,20 +93,62 @@
 </section>
 
 <section>
-    <h3>Manual Cycle (Dry Run)</h3>
-    <p>Trigger a one-off analysis cycle without submitting orders. Runs in the background — check logs for output.</p>
+    <h3>Manual Cycle</h3>
+    <p>Trigger a one-off analysis cycle. Dry-run shows what Claude would do. Real cycles submit orders and are rate-limited (1 per 5 min per mode).</p>
     <div class="actions">
         <form method="post" action="{{ url_for('controls_cycle', mode_param='paper') }}" style="display:inline">
             <button type="submit" onclick="return confirm('Run a paper dry-run cycle now?')">
-                Run Paper Dry-Run
+                Paper Dry-Run
+            </button>
+        </form>
+        <form method="post" action="{{ url_for('controls_cycle', mode_param='paper') }}" style="display:inline">
+            <input type="hidden" name="live" value="1">
+            <button type="submit" class="accent" onclick="return confirm('Run a REAL paper cycle now? Orders will be submitted to Alpaca paper.')">
+                Paper REAL
             </button>
         </form>
         <form method="post" action="{{ url_for('controls_cycle', mode_param='live') }}" style="display:inline">
             <button type="submit" onclick="return confirm('Run a LIVE dry-run cycle now? No orders will be submitted.')">
-                Run Live Dry-Run
+                Live Dry-Run
+            </button>
+        </form>
+        <form method="post" action="{{ url_for('controls_cycle', mode_param='live') }}" style="display:inline">
+            <input type="hidden" name="live" value="1">
+            <button type="submit" class="danger" onclick="return confirm('⚠️ Run a REAL LIVE cycle NOW? Real money orders will be submitted. Are you sure?')">
+                Live REAL
             </button>
         </form>
     </div>
+</section>
+
+<section>
+    <h3>Record Deposit / Withdrawal</h3>
+    <p>
+        Log a cash deposit (positive amount) or withdrawal (negative amount). Updates the capital base used for return calculations
+        without corrupting performance history.
+    </p>
+    <form method="post" action="{{ url_for('controls_deposit') }}" class="deposit-form">
+        <div class="form-row">
+            <label>
+                Mode
+                <select name="mode" required>
+                    <option value="paper" {% if mode == 'paper' %}selected{% endif %}>Paper</option>
+                    <option value="live" {% if mode == 'live' %}selected{% endif %}>Live</option>
+                </select>
+            </label>
+            <label>
+                Amount ($)
+                <input type="number" name="amount" step="0.01" required placeholder="1200.00 or -500.00">
+            </label>
+            <label style="flex:1">
+                Note
+                <input type="text" name="note" placeholder="Fidelity transfer" maxlength="200">
+            </label>
+            <button type="submit" class="accent" onclick="return confirm('Record this deposit/withdrawal to the ' + this.form.mode.value + ' log?')">
+                Record
+            </button>
+        </div>
+    </form>
 </section>
 
 {% if log_output %}

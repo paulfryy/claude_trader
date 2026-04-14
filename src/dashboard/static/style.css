@@ -585,3 +585,35 @@ section .actions {
     font-size: 0.75rem;
     margin-top: 0.5rem;
 }
+
+.deposit-form .form-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+.deposit-form label {
+    display: flex;
+    flex-direction: column;
+    font-size: 0.8rem;
+    color: var(--muted);
+    gap: 0.25rem;
+}
+
+.deposit-form input,
+.deposit-form select {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.5rem 0.65rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    min-width: 140px;
+}
+
+.deposit-form input:focus,
+.deposit-form select:focus {
+    outline: none;
+    border-color: var(--accent);
+}

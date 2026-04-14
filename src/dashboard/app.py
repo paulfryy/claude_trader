@@ -594,8 +594,22 @@ def controls_deps():
 
 @app.route("/controls/cycle/<mode_param>", methods=["POST"])
 def controls_cycle(mode_param: str):
-    # Only dry-run cycles from the dashboard — real cycles happen on schedule
-    result = controls.trigger_manual_cycle(mode_param, dry_run=True)
+    dry_run = request.form.get("live") != "1"
+    result = controls.trigger_manual_cycle(mode_param, dry_run=dry_run)
+    flash(result["message"], "success" if result["success"] else "error")
+    return redirect(url_for("controls_page", mode=get_mode()))
+
+
+@app.route("/controls/deposit", methods=["POST"])
+def controls_deposit():
+    mode_param = request.form.get("mode", "paper")
+    try:
+        amount = float(request.form.get("amount", "0"))
+    except ValueError:
+        flash("Amount must be a number", "error")
+        return redirect(url_for("controls_page", mode=get_mode()))
+    note = request.form.get("note", "").strip()[:200]
+    result = controls.submit_deposit(mode_param, amount, note)
     flash(result["message"], "success" if result["success"] else "error")
     return redirect(url_for("controls_page", mode=get_mode()))
 
