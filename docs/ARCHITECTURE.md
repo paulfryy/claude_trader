@@ -1,187 +1,337 @@
 # Architecture Overview
 
-**Last Updated:** 2026-04-03 (evening)
+**Last Updated:** 2026-04-13
 
 ## Directory Structure
 
 ```
 claude_agent/
-├── docs/                          # Project documentation
-│   ├── PROJECT_PLAN.md            # Implementation roadmap & status
-│   ├── ARCHITECTURE.md            # This file
-│   └── decisions/                 # Architecture decision records (ADRs)
-│       └── 001_initial_design_choices.md
+├── docs/                            # Project documentation
+│   ├── PROJECT_PLAN.md              # Implementation roadmap + status
+│   ├── ARCHITECTURE.md              # This file
+│   ├── CLOUD_DEPLOYMENT.md          # AWS EC2 deployment guide
+│   ├── FUTURE_ROADMAP.md            # Next-level development ideas
+│   └── decisions/                   # Architecture decision records
 ├── src/
-│   ├── agent/                     # Core agent orchestration
-│   │   ├── orchestrator.py        # Main agent loop + cycle mode logic
-│   │   └── scheduler.py           # 3x daily scheduling (Mon-Fri)
-│   ├── analysis/                  # Claude analysis engine
-│   │   ├── analyst.py             # Prompt construction, API calls, response parsing
-│   │   ├── prompts/               # (future) Prompt templates
-│   │   └── signals.py             # TradeSignal, MarketAnalysis models
-│   ├── data/                      # Market data layer
-│   │   ├── market_data.py         # Alpaca: bars, quotes, account, positions
-│   │   ├── indicators.py          # Technical indicators (RSI, MACD, BB, etc.)
-│   │   ├── news.py                # Alpaca news API client
-│   │   ├── universe.py            # S&P 500 + ETF symbol lists (524 total)
-│   │   └── screener.py            # Two-tier dynamic stock screener
-│   ├── portfolio/                 # Portfolio & risk management
-│   │   ├── portfolio.py           # Portfolio state tracking + snapshots
-│   │   ├── risk.py                # Risk rules engine (6 guardrails)
-│   │   └── sizing.py              # Position sizing (shares + options contracts)
-│   ├── execution/                 # Order execution
-│   │   └── orders.py              # Market + bracket orders via Alpaca
-│   ├── logging_utils/             # Logging & analytics
-│   │   ├── trade_journal.py       # Per-trade logging (executions + rejections)
-│   │   ├── decision_log.py        # Per-cycle Claude analysis logging
-│   │   ├── daily_summary.py       # Human-readable markdown daily summaries
-│   │   └── performance.py         # Performance metrics tracking
-│   └── config.py                  # Configuration (pydantic-settings from .env)
-├── logs/                          # Runtime logs (mostly gitignored)
-│   ├── summaries/                 # Daily markdown summaries (git-tracked)
-│   ├── trades/                    # Trade journal entries (JSON)
-│   ├── decisions/                 # Claude analysis logs (JSON)
-│   ├── portfolio/                 # Portfolio snapshots (JSON)
-│   └── errors/                    # Error logs
-├── tests/                         # Test suite
-├── .env                           # API keys (gitignored)
-├── .env.example                   # Environment variable template
-├── pyproject.toml                 # Project config & dependencies
+│   ├── agent/
+│   │   ├── orchestrator.py          # Main trading cycle loop
+│   │   └── scheduler.py             # 3x daily scheduling (Mon-Fri)
+│   ├── analysis/
+│   │   ├── analyst.py               # Claude prompt + API + options selection
+│   │   └── signals.py               # TradeSignal, MarketAnalysis models
+│   ├── data/
+│   │   ├── market_data.py           # Alpaca: bars, quotes, snapshots, accounts
+│   │   ├── indicators.py            # Technical indicators (RSI, MACD, BB, etc.)
+│   │   ├── news.py                  # Alpaca news API client
+│   │   ├── earnings_calendar.py     # Finnhub earnings calendar (free tier)
+│   │   ├── universe.py              # S&P 500 + ETFs + sector classification
+│   │   ├── screener.py              # Two-tier dynamic screener
+│   │   └── options_chain.py         # Options chain + live quotes
+│   ├── portfolio/
+│   │   ├── portfolio.py             # Portfolio state tracking + snapshots
+│   │   ├── risk.py                  # 9-layer risk engine
+│   │   ├── sizing.py                # Notional + options contract sizing
+│   │   └── trailing_stops.py        # Automated trailing stop tiers
+│   ├── execution/
+│   │   └── orders.py                # Equity + options order execution
+│   ├── logging_utils/
+│   │   ├── trade_journal.py         # Per-trade logging
+│   │   ├── decision_log.py          # Per-cycle Claude analysis log
+│   │   ├── daily_summary.py         # Markdown summaries (appended per cycle)
+│   │   ├── eod_report.py            # End-of-day consolidated report
+│   │   ├── email_report.py          # Gmail SMTP EOD delivery
+│   │   ├── benchmark.py             # SPY benchmark tracker
+│   │   ├── performance.py           # Stats analyzer (equity curve, Sharpe, etc.)
+│   │   └── anomaly_log.py           # Structured unusual events logger
+│   ├── dashboard/
+│   │   ├── app.py                   # Flask routes + handlers
+│   │   ├── controls.py              # Service management + git operations
+│   │   ├── templates/               # Jinja2 templates (9 pages)
+│   │   └── static/style.css         # Dark theme styling
+│   └── config.py                    # pydantic-settings config
+├── logs/                            # Runtime logs (mode-separated)
+│   ├── paper/
+│   │   ├── trades/                  # Trade records
+│   │   ├── decisions/               # Claude analyses
+│   │   ├── portfolio/               # State snapshots
+│   │   ├── summaries/               # Per-cycle markdown (git-tracked)
+│   │   ├── reports/                 # EOD reports (git-tracked)
+│   │   ├── errors/                  # Error tracebacks
+│   │   ├── anomalies.jsonl          # Structured anomaly log
+│   │   ├── benchmark.json           # SPY start price
+│   │   └── high_watermark.json      # Peak equity
+│   └── live/                        # Same structure, isolated from paper
+├── tests/                           # Test suite (minimal)
+├── .env                             # Legacy single config (optional)
+├── .env.paper                       # Paper mode config (gitignored)
+├── .env.live                        # Live mode config (gitignored)
+├── .env.example                     # Template (git-tracked)
+├── pyproject.toml                   # Project config & dependencies
 └── .gitignore
 ```
 
-## Data Flow
+## Data Flow (per cycle)
 
 ```
-  S&P 500 + ETFs (524 symbols)
-           │
-     ┌─────┴──────┐
-     │  Screener   │
-     │  Tier 1:    │  Batch snapshots (<1s)
-     │  price/vol  │  → ~76 pass
-     │  Tier 2:    │  Bars + indicators
-     │  signals    │  → top ~30
-     └─────┬──────┘
-           │
-           ▼ (screened watchlist + anchors + positions)
-                              ┌─────────────────┐
-                              │  Cycle Mode      │
-                              │  morning/midday/ │
-                              │  closing         │
-                              └────────┬─────────┘
-                                       │
-Market Data (Alpaca) ──┐               │
-  - OHLCV bars         │               ▼
-  - Latest quotes      ├──> Claude Analysis ──> Trade Signals
-  - Account info       │    (cycle-mode-aware)
-News (Alpaca) ─────────┘          │
-                                  │
-Portfolio State ──────────────────┤
-  - Positions                     │
-  - Exposure                      ▼
-  - Drawdown              Risk Validation
-                          (6 guardrails)
-                                  │
-                     ┌────────────┼────────────┐
-                     │            │             │
-                  APPROVED    REJECTED     PDT BLOCKED
-                     │            │             │
-                     ▼            ▼             ▼
-              Order Execution  Log reason    Log reason
-              (Alpaca API)
+                                ┌─────────────────────┐
+                                │ Cycle Mode          │
+                                │ morning/midday/     │
+                                │ closing             │
+                                └──────────┬──────────┘
+                                           │
+  S&P 500 + ETFs (524 symbols)             │
+  ┌──────────────────────────┐             │
+  │  Two-Tier Screener       │             │
+  │                          │             │
+  │  Tier 1: Snapshot scan   │             │
+  │  - Price/volume filter   │             │
+  │  - Batch API calls       │             │
+  │  → ~76 symbols pass      │             │
+  │                          │             │
+  │  Tier 2: Signal scoring  │             │
+  │  - Full indicators       │             │
+  │  - RSI, MACD, SMA, BB    │             │
+  │  - Relative strength vs  │             │
+  │    SPY 10-day (FILTER)   │             │
+  │  → top 30 by score       │             │
+  └──────────┬───────────────┘             │
+             │                             │
+             │ + 3 anchors (SPY, QQQ, IWM) │
+             │ + current positions          │
+             ▼                              │
+  ┌──────────────────────────┐             │
+  │  Context Assembly         │             │
+  │  - Watchlist data         │             │
+  │  - News (Alpaca/Benzinga) │             │
+  │  - Earnings calendar      │             │
+  │    (Finnhub)              │             │
+  │  - Open stop orders       │             │
+  │  - Portfolio state        │             │
+  │  - Prior cycles today     │             │
+  └──────────┬───────────────┘             │
+             │                              │
+             ▼                              ▼
+  ┌──────────────────────────────────────────────┐
+  │  Trailing Stop Automation (pre-analysis)     │
+  │  For each position:                          │
+  │  - +5%  → raise stop to breakeven            │
+  │  - +10% → trail 5% below current             │
+  │  - +20% → trail 8% below current             │
+  │  Updates stops BEFORE Claude sees them       │
+  └──────────────────┬───────────────────────────┘
                      │
                      ▼
-              ┌──────────────┐
-              │ Logging      │
-              │ - Trade JSON │
-              │ - Decision   │
-              │ - Snapshot   │
-              │ - Summary.md │
-              └──────────────┘
+  ┌──────────────────────────────────────────────┐
+  │  Claude Analysis (cycle-mode-aware)          │
+  │  - Aggressive system prompt                  │
+  │  - Conviction-weighted sizing rules          │
+  │  - Hard exit rules                           │
+  │  - Sector diversification rules              │
+  │  - Retry on 529/503/429 errors               │
+  │  → MarketAnalysis (JSON)                     │
+  │    - market_regime, confidence               │
+  │    - market_summary (narrative)              │
+  │    - trade_signals (opens)                   │
+  │    - positions_to_close                      │
+  │    - stop_adjustments                        │
+  └──────────────────┬───────────────────────────┘
+                     │
+                     ▼
+  ┌──────────────────────────────────────────────┐
+  │  9-Layer Risk Engine                         │
+  │  1. Drawdown circuit breaker                 │
+  │  2. Max positions (6 equity)                 │
+  │  3. Sector concentration (2 per sector)      │
+  │  4. Catalyst size cap (5% overnight)         │
+  │  5. Position size cap (20%)                  │
+  │  6. Total exposure (90%)                     │
+  │  7. Options exposure (40%)                   │
+  │  8. PDT warning                              │
+  │  9. Stop-loss required (equity buys)         │
+  │                                              │
+  │  Daily position limit: 3 new/day             │
+  │  Bad-stop check: stop < current price        │
+  │  Closing cycle: catalyst-only entries        │
+  └──────────────────┬───────────────────────────┘
+                     │
+             ┌───────┴───────┐
+             │               │
+          APPROVED       REJECTED
+             │               │
+             ▼               ▼
+  ┌──────────────┐    ┌──────────────┐
+  │  Execute     │    │  Log as      │
+  │  via Alpaca  │    │  anomaly     │
+  │              │    │  + rejection │
+  │  Equity:     │    └──────────────┘
+  │   notional   │
+  │   market     │
+  │   +stop-loss │
+  │   retry      │
+  │              │
+  │  Options:    │
+  │   chain      │
+  │   lookup     │
+  │   → Claude   │
+  │   picks      │
+  │   contract   │
+  │   → OCC      │
+  │   symbol     │
+  │   order      │
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────────────────────┐
+  │  Logging                     │
+  │  - Trade journal JSON        │
+  │  - Decision log JSON         │
+  │  - Portfolio snapshot JSON   │
+  │  - Daily summary markdown    │
+  │  - Anomaly log (on failure)  │
+  │                              │
+  │  Closing cycle only:         │
+  │  - EOD report markdown       │
+  │  - Email via Gmail SMTP      │
+  └──────────────────────────────┘
 ```
 
 ## Cycle Modes
 
-The agent runs 3 times per trading day, each with different permissions:
-
 | Time (ET) | Mode | New Entries | Exits | Purpose |
-|-----------|------|-------------|-------|---------|
+|---|---|---|---|---|
 | 9:45 AM | Morning | Yes | Yes | Primary decision cycle |
 | 12:30 PM | Midday | Selective | Yes | Defensive check, manage positions |
-| 3:45 PM | Closing | **No** | Yes | Review, log EOD, prep for tomorrow |
+| 3:45 PM | Closing | Catalyst only | Yes | Review, log EOD, prep for tomorrow |
 
-Claude receives different system prompts per mode. The closing cycle tells Claude to focus on position review and tomorrow's outlook rather than proposing new buys.
+Catalyst entries (closing cycle): new positions allowed only with an explicit catalyst (earnings, FDA decision, etc.) at 5% max size.
 
-## Risk Management Layers
+## 9-Layer Risk Engine
 
 ```
 Layer 1: Claude's System Prompt
-  └── Told the rules, asked to self-enforce
+  └── Strategy rules, conviction sizing, hard exits
 
-Layer 2: Risk Manager (risk.py)
-  ├── Drawdown circuit breaker (>15% → halt all new trades)
-  ├── Position size cap (>15% → clamp)
-  ├── Total exposure cap (>90% → clamp or reject)
-  ├── Options exposure cap (>30% → reject)
-  ├── Stop-loss required (no stop → reject)
-  └── PDT warning (at limit → warn)
+Layer 2: Risk Manager (src/portfolio/risk.py)
+  ├── Drawdown circuit breaker     (>15% → halt new buys)
+  ├── Max positions                (6 concurrent)
+  ├── Sector concentration         (2 per sector)
+  ├── Catalyst size limit          (5% overnight trades)
+  ├── Position size cap            (20% max)
+  ├── Total exposure cap           (90%)
+  ├── Options exposure cap         (40%)
+  ├── PDT limit check              (3 day trades / 5 days)
+  └── Stop-loss required           (equity buys only)
 
-Layer 3: Orchestrator PDT Check
-  └── Scans trade journal for same-day buys before any sell
+Layer 3: Orchestrator Pre-Flight Checks
+  ├── Bad stop-loss detection      (stop >= current price rejected)
+  ├── Daily position limit         (3 new per day, prompt+code enforced)
+  ├── PDT same-day sell check      (trade journal lookup)
+  ├── Duplicate close prevention   (closed_this_cycle set)
+  └── Closing cycle catalyst check (no non-catalyst buys)
 
 Layer 4: Cycle Mode Enforcement
-  └── Closing cycle blocks all new entries regardless
+  └── Closing cycle blocks non-catalyst entries
 
-Layer 5: Alpaca (final backstop)
-  └── Rejects day trades past PDT limit
+Layer 5: Alpaca Broker-Side
+  ├── Day trade count enforcement  (final backstop)
+  ├── Buying power validation      (can't exceed cash)
+  └── Wash trade protection        (we cancel stops first)
 ```
 
 ## Key Design Principles
 
 1. **Separation of concerns** — Claude analyzes, risk engine validates, executor trades
-2. **Claude cannot bypass risk limits** — hard-coded guardrails in the risk engine
-3. **Everything is logged** — decisions, trades, errors, performance (JSON + markdown)
-4. **Defense in depth** — multiple layers for PDT, risk, and mode enforcement
-5. **Fail safe** — errors result in no action, not bad trades
-6. **Paper-first** — all development against paper trading environment
-7. **Learn from mistakes** — daily summaries + decision logs enable cross-session review
+2. **Defense in depth** — risk checks at multiple layers
+3. **Fail safe** — errors abort cycles gracefully, never execute bad trades
+4. **Paper isolation** — separate env files, separate logs, same code
+5. **Everything logged** — decisions, trades, errors, anomalies (JSON + markdown)
+6. **Anomaly feedback loop** — structured problem log for iterative improvement
+7. **Retry transient failures** — Anthropic 529, race conditions, fractional bracket fallback
+8. **Claude cannot bypass** — hard risk limits in code, prompt is advisory
 
 ## Configuration
 
-All settings are loaded from `.env` via pydantic-settings:
+All settings load from `.env.paper` or `.env.live` via pydantic-settings and the `--env` flag.
 
-| Variable | Default | Description |
+| Variable | Default | Purpose |
 |---|---|---|
 | `ALPACA_API_KEY` | — | Alpaca API key |
-| `ALPACA_SECRET_KEY` | — | Alpaca secret key |
+| `ALPACA_SECRET_KEY` | — | Alpaca secret |
 | `ALPACA_TRADING_MODE` | `paper` | `paper` or `live` |
 | `ANTHROPIC_API_KEY` | — | Claude API key |
+| `FINNHUB_API_KEY` | — | Earnings calendar (optional) |
+| `GMAIL_EMAIL` | — | SMTP sender (optional) |
+| `GMAIL_APP_PASSWORD` | — | SMTP auth (optional) |
+| `NOTIFY_EMAIL` | — | EOD report recipient (optional) |
 | `CLAUDE_MODEL` | `claude-sonnet-4-20250514` | Model for analysis |
-| `MAX_POSITION_PCT` | `0.15` | Max single position size |
-| `MAX_TOTAL_EXPOSURE_PCT` | `0.90` | Max portfolio deployment |
-| `MAX_OPTIONS_EXPOSURE_PCT` | `0.30` | Max options allocation |
+| `STARTING_CAPITAL` | `1000` | Virtual equity base for sizing |
+| `MAX_POSITION_PCT` | `0.20` | Max % in single position |
+| `MAX_TOTAL_EXPOSURE_PCT` | `0.90` | Max % deployed |
+| `MAX_OPTIONS_EXPOSURE_PCT` | `0.40` | Max % in options |
 | `MAX_DRAWDOWN_PCT` | `0.15` | Circuit breaker threshold |
 | `STOP_LOSS_DEFAULT_PCT` | `0.08` | Default stop-loss distance |
+| `MAX_TOTAL_POSITIONS` | `6` | Max concurrent positions |
+| `MAX_POSITIONS_PER_SECTOR` | `2` | Sector concentration limit |
+| `MAX_NEW_POSITIONS_PER_DAY` | `3` | PDT stop-loss constraint |
 | `LOG_LEVEL` | `INFO` | Logging verbosity |
-
-## Error Handling
-
-The agent is designed to **never crash from a single failure**:
-
-- **Orchestrator**: Each step (data fetch, analysis, execution) is wrapped in try/except. If a step fails, the error is logged to `logs/errors/` and the cycle returns `False`. Non-critical failures (news fetch) log a warning and continue.
-- **Scheduler**: Wraps each cycle call in `_safe_run_cycle()`. If a cycle crashes with an unhandled exception, it's caught, logged, and the scheduler continues to the next scheduled run.
-- **Startup validation**: On boot, the scheduler verifies Alpaca and Anthropic connectivity. If either fails, it exits immediately with a clear error rather than waiting until the first scheduled cycle to discover the problem.
-- **Graceful shutdown**: Ctrl+C triggers a clean shutdown with logging.
 
 ## Running
 
 ```bash
-# Single cycle (uses current time to determine mode)
-python -m src.agent.orchestrator
+# Paper trading — scheduled
+python -m src.agent.scheduler --env .env.paper
 
-# Dry-run (full pipeline, no order submission — works outside market hours)
-python -m src.agent.orchestrator --dry-run
+# Live trading — scheduled
+python -m src.agent.scheduler --env .env.live
 
-# Scheduled (3x daily Mon-Fri, validates connections on startup)
-python -m src.agent.scheduler
+# One-off cycle (auto-detects mode from current time)
+python -m src.agent.orchestrator --env .env.paper
+
+# Dry-run (full pipeline, no order submission, bypasses market hours)
+python -m src.agent.orchestrator --env .env.paper --dry-run
+
+# Dashboard
+python -m src.dashboard.app
+# Then visit http://localhost:8080
 ```
+
+In production on EC2, all three run as systemd services with auto-restart.
+
+## Dashboard
+
+Read-only Flask web UI exposing:
+
+| Page | Path | Purpose |
+|---|---|---|
+| Overview | `/` | Live portfolio + latest cycle narrative |
+| Performance | `/performance` | Stats, equity curve, trade history |
+| Positions | `/positions` | Current holdings with P&L |
+| Reports | `/reports` | End-of-day markdown reports |
+| History | `/history` | Per-cycle daily summaries |
+| Cycles | `/cycles` | Recent Claude analyses with full rationale |
+| Diagnostics | `/diagnostics` | Anomaly log with filters + export |
+| Controls | `/controls` | Service management + git ops + logs |
+
+Mode toggle: `?mode=paper` or `?mode=live` on any page. Separate logs per mode.
+
+Controls page actions:
+- Restart / Start / Stop each trading service
+- Restart the dashboard itself (deferred 2s for HTTP response)
+- Git Pull to update code
+- Refresh Python dependencies
+- Trigger manual dry-run cycles
+- View recent journalctl logs per service
+- View server health (uptime, disk, memory)
+- View audit log of control actions
+
+## Error Handling
+
+The agent is designed to never crash from a single failure:
+
+- **Orchestrator** — each step wrapped in try/except, failures logged to `logs/{mode}/errors/` with full traceback
+- **Scheduler** — wraps each cycle in `_safe_run_cycle()`, catches all exceptions, continues to next cycle
+- **Startup validation** — tolerates transient Anthropic 529/503/429 errors at boot
+- **Claude retries** — exponential backoff (15s → 30s → 60s → 120s) on overloaded errors
+- **Stop-loss retries** — waits for fill, retries 4 times over 8s
+- **Anomaly logging** — every unusual event logged for feedback
+- **Graceful shutdown** — Ctrl+C triggers clean exit with logging

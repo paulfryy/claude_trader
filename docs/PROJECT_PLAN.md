@@ -1,208 +1,226 @@
 # Claude Trading Agent — Project Plan
 
-**Last Updated:** 2026-04-03 (evening)
+**Last Updated:** 2026-04-13
 
 ## Overview
-Fully autonomous Claude-powered trading agent managing a $1000 portfolio via Alpaca.
-Target: beat the S&P 500 benchmark through swing trading equities/ETFs and short-term options.
+Fully autonomous Claude-powered trading agent managing a live portfolio via Alpaca. Target: beat the S&P 500 by a meaningful margin through concentrated swing trading in equities, ETFs, and options.
+
+**Current State:** Live trading with $2,500 real capital. Paper trading running in parallel for strategy validation. Running 24/7 on AWS EC2 with a read-only dashboard for monitoring.
 
 ## Constraints
-- **PDT Rule**: Under $25k, limited to 3 day trades per 5 rolling business days. Strategy must be swing-oriented (hold overnight minimum) or use options.
-- **Capital**: $1000 starting — position sizing must account for small account dynamics
-- **Options**: Alpaca options support — must verify tier/approval level
-- **API Budget**: ~$10 Anthropic credits — each cycle costs ~$0.02-0.05
+
+- **PDT Rule:** Under $25k equity, limited to 3 day trades per 5 rolling business days. Strategy is swing-oriented (overnight minimum holds) plus options for leverage.
+- **Capital:** $2,500 live (transferring additional $4,000 from Fidelity, landing this week)
+- **Fractional shares:** Alpaca supports notional orders, but stop-loss orders require whole shares. Fractional positions are managed via cycle-based review.
+- **API budget:** ~$0.03/cycle for Claude, ~$2-3/month total. Finnhub free tier (60/min) for earnings calendar.
 
 ---
 
-## Implementation Phases
+## Strategy — Aggressive Tier (as of 2026-04-13)
 
-### Phase 1: Project Setup & Infrastructure — COMPLETE
-- [x] Define project goals and constraints
-- [x] Initialize Python project (pyproject.toml, virtual environment)
-- [x] Set up directory structure
-- [x] Configure Alpaca API (paper trading)
-- [x] Set up Anthropic API client
-- [x] Create configuration management (env vars, pydantic-settings)
-- [x] Initialize git repo
+After one week of paper trading showed us tracking SPY instead of beating it, the strategy was overhauled to be concentrated, decisive, and conviction-weighted.
 
-### Phase 2: Data Layer — COMPLETE
-- [x] Market data client (Alpaca market data API)
-  - [x] Historical OHLCV bars (daily, up to 1yr lookback)
-  - [x] Latest quotes (bid/ask)
-  - [x] Batch snapshots (price + volume for 500+ symbols in <1s)
-  - [x] Account info and positions
-  - [ ] Options chain data (deferred — needs options approval)
-- [x] Technical indicators module (RSI, MACD, SMA/EMA, Bollinger Bands, ATR, OBV, VWAP, Stoch RSI)
-- [x] News/sentiment data pipeline (Alpaca news API — market-wide and per-symbol)
-- [x] Trading universe (S&P 500 + 30 major ETFs = 524 symbols)
-- [x] Dynamic screener — two-tier filtering:
-  - Tier 1: Batch snapshots → price ($5-$500) + volume (>500k) filter → ~76 candidates
-  - Tier 2: Full bars + indicators → signal scoring (RSI, SMA cross, MACD, volume spike, BB breakout) → top ~30
-  - Anchor symbols (SPY, QQQ, IWM) always included
-  - Current positions always included
-  - Falls back to static 16-symbol list if screener fails
-- [ ] Fundamental data (earnings, financials) — deferred to Phase 10
-- [ ] Data caching to minimize API calls — deferred, not needed yet at 3 cycles/day
+### Core Rules
+- **Max 6 concurrent positions** — concentrate on best ideas
+- **Max 2 positions per sector** — real diversification, not stacked bets
+- **Conviction-weighted sizing:**
+  - HIGH conviction: 15-20% of portfolio
+  - MEDIUM conviction: 8-12%
+  - LOW conviction: skip entirely (no mediocre trades)
+- **Relative strength requirement:** every buy must be outperforming SPY over the last 10 days
+- **Max 40% options exposure** — options are the leverage lever for small accounts
+- **Max 3 new positions per day** (PDT stop-loss constraint)
 
-### Phase 3: Claude Analysis Engine — COMPLETE
-- [x] Prompt engineering for market analysis
-  - [x] Market regime detection (bull/bear/sideways/volatile)
-  - [x] Individual stock/ETF analysis with technical indicators
-  - [ ] Options opportunity identification (deferred — needs options chain data)
-- [x] Structured JSON output parsing (trade signals with confidence scores)
-- [x] Context management — feeds Claude indicators + news + portfolio state
-- [x] Cycle-aware prompting (morning/midday/closing modes)
-- [x] Decision documentation — every analysis logged with full rationale
+### Hard Exit Rules
+- Take 50% profit at halfway to target
+- Close any position down 10% from entry (no averaging down)
+- Close any position flat (±3%) after 5 days (no dead capital)
+- Close any position that hits its initial target
+- Close any position whose thesis has broken
 
-### Phase 4: Portfolio & Risk Management — COMPLETE
-- [x] Portfolio state tracker (positions, cash, P&L, exposure)
-- [x] Risk rules engine (6 hard guardrails):
-  - [x] Max position size (15% of portfolio)
-  - [x] Max total exposure (90%)
-  - [x] Stop-loss required on all buys
-  - [x] Max options exposure (30%)
-  - [x] PDT day trade protection (3 layers: Claude prompt, trade journal check, Alpaca backstop)
-  - [x] Max drawdown circuit breaker (15%)
-- [x] Position sizing calculator (fixed fractional for equities and options)
+### Cycle Modes (3x daily, Mon-Fri)
+- **Morning (9:45 AM ET):** Full trading cycle. New entries + exits + rotation.
+- **Midday (12:30 PM ET):** Defensive review. Stop adjustments and selective entries.
+- **Closing (3:45 PM ET):** Review only. Exits + tomorrow's plan + EOD report.
 
-### Phase 5: Order Execution — COMPLETE (equities)
-- [x] Market orders via Alpaca
-- [x] Bracket orders (take-profit + stop-loss)
-- [x] Position closing
-- [x] Order status reporting
-- [ ] Options order builder — deferred until options approval
-- [ ] Order monitoring (fills, partial fills) — future enhancement
-- [ ] Retry/fallback logic for failed orders — future enhancement
-
-### Phase 6: Agent Orchestration — COMPLETE
-- [x] Main agent loop (orchestrator.py):
-  1. Check market status
-  2. Fetch portfolio state + snapshot
-  3. Fetch market data + indicators for watchlist
-  4. Fetch news (market-wide + per-symbol)
-  5. Run Claude analysis (cycle-mode-aware)
-  6. Close positions Claude wants to exit (with PDT check)
-  7. Validate new signals against risk rules
-  8. Execute approved trades
-  9. Log everything (JSON + markdown summary)
-- [x] Cycle modes:
-  - Morning (9:45 AM ET): Full trading — new entries + exits
-  - Midday (12:30 PM ET): Defensive — manage positions, selective entries
-  - Closing (3:45 PM ET): Review only — exits + analysis, NO new entries
-- [x] Scheduler (3x daily Mon-Fri)
-- [x] Error handling — each cycle step wrapped in try/except, errors logged to `logs/errors/`
-- [x] Scheduler survives cycle crashes — logs error and continues to next cycle
-- [x] Startup validation — verifies Alpaca + Anthropic connectivity before scheduling
-- [x] Dry-run mode (`--dry-run`) — full pipeline without order submission
-- [x] Graceful shutdown (Ctrl+C handler)
-- [x] Windows Unicode encoding fix for Rich console output
-
-### Phase 7: Logging & Analytics — MOSTLY COMPLETE
-- [x] Trade journal (every trade with signal, execution result, portfolio state)
-- [x] Trade rejection log (rejected signals with reasons)
-- [x] Decision log (every Claude analysis with full response)
-- [x] Daily portfolio snapshots (JSON)
-- [x] Human-readable daily markdown summaries (git-tracked)
-- [ ] Performance metrics (Sharpe ratio, max drawdown, win rate, avg win/loss)
-- [ ] Benchmark comparison (portfolio vs SPY)
-- [ ] Mistake tracker (trades that lost money — what went wrong)
-
-### Phase 8: Paper Trading & Validation — IN PROGRESS
-- [x] Alpaca paper account connected ($100k paper money)
-- [x] Full pipeline tested end-to-end (data → analysis → risk → logging)
-- [x] Dry-run tested successfully (2026-04-03) — Claude analyzed 16 symbols, generated 3 signals, all validated
-- [ ] **Run scheduled agent during market hours (Monday 2026-04-06)** ← NEXT STEP
-- [ ] Run for 2+ weeks collecting data
-- [ ] Daily performance review
-- [ ] Tune risk parameters and watchlist based on results
-- [ ] Tune Claude prompts based on decision quality
-- [ ] Validate logging captures everything needed for analysis
-
-### Phase 9: Go Live
-- [ ] Switch to live Alpaca account with $1000
-- [ ] Adjust risk limits for real money (likely tighter initially)
-- [ ] Daily monitoring and review
-- [ ] Iterative improvement based on trade journal analysis
-
-### Phase 10: Enhancements (Future)
-- [ ] Options trading (needs Alpaca options approval + chain data)
-- [ ] Fundamental data integration (earnings, revenue, analyst ratings)
-- [ ] Sector rotation strategy
-- [ ] Earnings calendar awareness (avoid holding through earnings)
-- [ ] Data caching layer
-- [ ] Backtesting framework (replay historical data through the agent)
-- [ ] Performance dashboard (web UI or CLI report)
-- [ ] Cross-session learning (feed past trade outcomes into Claude's context)
-- [ ] Alert system (email/SMS on significant events)
-- [ ] Multi-timeframe analysis (daily + hourly charts)
+### Trailing Stops (automated, no Claude involvement)
+- +5% gain → raise stop to breakeven
+- +10% gain → trail 5% below current
+- +20% gain → trail 8% below current (let it run)
 
 ---
 
-## Current Status (2026-04-03)
+## Implementation Phases — COMPLETE
 
-**Where we are:** Phases 1-7 are built and hardened. Dynamic screener scans the full S&P 500 + 30 ETFs (524 symbols) and filters to actionable candidates. Error handling, startup validation, dry-run mode, and graceful shutdown are all in place. Multiple dry-run tests completed successfully.
+### Phase 1: Project Setup & Infrastructure — ✅
+- Python project, virtual environment, pyproject.toml
+- Alpaca API client (paper + live)
+- Anthropic API client with retry on 529/503/429
+- Configuration via pydantic-settings from .env files
 
-**What's next:** Run `python -m src.agent.scheduler` on Monday 2026-04-06 before 9:45 AM ET. This will be the first time the agent actually executes orders on the paper account.
+### Phase 2: Data Layer — ✅
+- Market data client (Alpaca): bars, quotes, snapshots, account, positions
+- Technical indicators: RSI, MACD, SMA/EMA, Bollinger Bands, ATR, OBV, VWAP, Stoch RSI
+- News data pipeline (Alpaca news API)
+- Trading universe (S&P 500 + 30 ETFs = 524 symbols)
+- Two-tier dynamic screener (Tier 1: price/volume filter, Tier 2: signal scoring + relative strength)
+- Options chain data fetcher (Alpaca options API)
+- Earnings calendar (Finnhub free tier)
+- Sector classification map (295 symbols across 11 sectors)
 
-**Key concerns:**
-- We're using $100k paper money but the real account will be $1000. Position sizing logic works on percentages so it should scale, but we should watch for any issues with minimum order sizes or fractional shares.
-- Claude's conviction levels (Conviction.MEDIUM vs "medium") are showing in summaries — cosmetic, fix later.
-- Need to monitor API credit usage — each cycle costs ~$0.02-0.05.
-- Screener only found 1 candidate after hours (expected — most signals need live market data). Monday will show realistic candidate counts.
+### Phase 3: Claude Analysis Engine — ✅
+- Prompt engineering with cycle-mode awareness (morning/midday/closing)
+- Aggressive strategy rules embedded in system prompt
+- Structured JSON output parsing with retry
+- Cross-cycle context (previous cycles' narratives loaded)
+- Two-step options flow: Claude proposes underlying + direction, then selects specific contract from real options chain
+- Earnings awareness via upcoming earnings section in prompt
+
+### Phase 4: Portfolio & Risk Management — ✅
+- Portfolio state tracker (virtual equity for paper, real for live)
+- Risk rules engine with 9 layered checks:
+  1. Drawdown circuit breaker (15%)
+  2. Max positions cap (6)
+  3. Sector concentration (2 per sector)
+  4. Catalyst trade size (5% for overnight earnings plays)
+  5. Max single position (20%)
+  6. Max total exposure (90%)
+  7. Max options exposure (40%)
+  8. PDT limit warning
+  9. Stop-loss required on equity buys
+- Position sizing via notional orders (fractional shares)
+- Options sizing using real premium data (contracts × premium × 100)
+- High watermark persisted to disk
+- Trailing stops (automated, tier-based)
+
+### Phase 5: Order Execution — ✅
+- Equity: notional market orders (handles fractional shares)
+- Options: real contract lookup + OCC symbol order submission
+- Stop-loss: automatic after buy fills, with retry on race conditions
+- Close: cancels existing stops first to avoid held-quantity errors
+- Bracket order fallback when fractional
+- Wash trade prevention (cancels opposing stops before buys)
+
+### Phase 6: Orchestration — ✅
+- Full cycle loop with per-step error handling
+- Cycle modes with different permissions
+- Scheduled runs Mon-Fri (3x daily) via schedule library
+- systemd services for auto-restart
+- Startup connection validation with graceful 529 tolerance
+- Dry-run mode for testing
+
+### Phase 7: Logging & Analytics — ✅
+- Trade journal (per-trade entry + execution + rejection records)
+- Decision log (full Claude analysis per cycle)
+- Portfolio snapshots (per-cycle state)
+- Daily markdown summaries (appended per cycle)
+- End-of-day reports (consolidated daily view with position table, thesis tracking, realized P&L)
+- Anomaly log (structured JSONL for every unusual event)
+- Performance analyzer (equity curve, Sharpe, win rate, expectancy, alpha)
+- Benchmark tracker (SPY return from recorded start)
+- Email EOD reports (Gmail SMTP, HTML styled)
+- Separate logs per mode (`logs/paper/` vs `logs/live/`)
+
+### Phase 8: Paper Trading & Validation — ✅
+- One week of paper trading validated pipeline
+- Exposed several bugs: options pricing, stop-loss race, wash trades, screener limit, timezone handling
+- Code review surfaced 6 critical/important issues, all fixed
+- Baseline performance measured: underperforming SPY by ~4.8% with scatter-shot portfolio → triggered aggressive strategy overhaul
+
+### Phase 9: Live Trading — ✅
+- Live account connected, first trades 2026-04-10
+- Live runs alongside paper with separate env files, separate logs, same code
+- Both services on single EC2 t4g.nano
+
+### Phase 10: Cloud Deployment — ✅
+- AWS EC2 instance (us-east-1, Amazon Linux 2023)
+- systemd services: trading-agent-live, trading-agent-paper, trading-dashboard
+- Auto-restart on crash, auto-start on boot
+- Timezone set to America/New_York
+- Git-based deployment from dashboard
+
+### Phase 11: Monitoring Dashboard — ✅
+- Flask-based read-only web UI on port 8080
+- Pages: Overview, Performance, Positions, Reports, History, Cycles, Diagnostics, Controls
+- Mode toggle (paper/live) via query param with separate logs
+- Live portfolio data from Alpaca + persisted snapshots
+- Equity curve chart (Chart.js) with starting capital reference
+- Performance stats: win rate, expectancy, profit factor, Sharpe, max drawdown
+- Raw alpha vs Deployed alpha (cash-drag-adjusted)
+- Anomaly diagnostics with filters and markdown export
+- Controls: service management (restart/start/stop), git pull, dependency refresh, manual dry-run cycles
+- Self-restart (deferred subprocess to return HTTP response before dying)
+- Audit log for control actions
+
+### Phase 12: Feedback Loop — ✅
+- Anomaly logger captures every unusual event (rejected signals, stop failures, parse errors, etc.)
+- Structured types for easy filtering (signal_rejected, bad_stop_loss, circuit_breaker, etc.)
+- Export to markdown for sharing in chat
+- Startup validation tolerates transient Anthropic outages (529 retried, not fatal)
+- Email alerts via EOD summary (no SMS/webhook alerts yet)
 
 ---
 
-## Architecture Decisions
+## Current Status (2026-04-13)
 
-See [docs/decisions/](decisions/) for full ADRs.
+**What's running live:**
+- Live account: $2,500 starting capital, 4-5 positions from week 1
+- Paper account: $100k simulated, about to be liquidated for a clean restart with new strategy
+- Dashboard at `http://98.94.2.153:8080`
+- Email EOD reports delivered daily to paulfrydryk@gmail.com
 
-### Why Python?
-- Best library ecosystem for finance (pandas, numpy, ta)
-- Alpaca and Anthropic both have first-party Python SDKs
-- Rapid iteration
+**Recent changes (today):**
+- Strategy overhaul: aggressive tier with 6-position cap, sector limits, conviction sizing, hard exit rules, relative strength filter
+- Performance dashboard with equity curve and full stats
+- Trailing stops automation
+- Alpha calculation split into raw vs deployed
 
-### Why Alpaca?
-- Commission-free equities and options
-- Clean REST + WebSocket API
-- Paper trading environment for safe testing
-- Options support
-
-### Why Swing Trading + Options?
-- PDT rule prevents frequent day trading under $25k
-- Swing trades (multi-day holds) avoid PDT entirely
-- Options allow leveraged exposure with defined risk on small capital
-- Options premiums can generate income even in sideways markets
-
-### Fully Autonomous Design
-- Claude makes all trading decisions — no human approval loop
-- Risk management rules act as guardrails (hard limits Claude cannot override)
-- Every decision is logged so we can review and refine
-
-### Cycle Modes
-- Three cycles per trading day with different permissions
-- Closing cycle is analysis-only — prevents opening positions near market close
-- PDT protection at multiple layers (prompt, code, Alpaca)
+**Outstanding:**
+- Paper liquidation and fresh restart (user action)
+- $4k Fidelity transfer in progress (2-5 business days)
+- Once funds land: update STARTING_CAPITAL to $6,500 in .env.live
 
 ---
 
-## Key Risk Mitigations
-1. **Paper trade first** — validate everything before real money
-2. **Hard risk limits** — 6 coded constraints Claude cannot bypass
-3. **Circuit breaker** — halt trading if drawdown exceeds 15%
-4. **PDT protection** — 3 layers prevent accidental day trades
-5. **Cycle modes** — closing cycle blocks new entries
-6. **Extensive logging** — full audit trail for every decision in JSON + markdown
-7. **Small position sizes** — no single position > 15% of portfolio
+## Risk Mitigations
+
+1. **Paper-first validation** — every strategy change tested on paper before affecting live
+2. **9-layer risk engine** — hard limits Claude cannot bypass
+3. **Drawdown circuit breaker** — halt new trades if portfolio drops 15% from peak
+4. **PDT protection** — 3 layers (Claude prompt, trade journal check, Alpaca backstop)
+5. **Sell-first rotation** — closes processed before new buys, exposure freed in same cycle
+6. **Extensive logging** — every decision, rejection, error, and anomaly persisted
+7. **Dual email reports** — paper and live delivered separately for side-by-side review
+8. **Cloud deployment** — auto-restart, no single point of user-machine failure
+9. **Anomaly feedback loop** — structured problem log for rapid iteration
+10. **Conservative options use** — premium is max loss, sizing enforced at cycle level
 
 ---
 
 ## Log Structure
 
-| Location | Format | Purpose | Git Tracked |
+| Path | Format | Purpose | Git-tracked |
 |---|---|---|---|
-| `logs/summaries/` | Markdown | Human-readable daily summaries | Yes |
-| `logs/decisions/` | JSON | Full Claude analyses + raw responses | No |
-| `logs/trades/` | JSON | Individual trade records | No |
-| `logs/portfolio/` | JSON | Portfolio snapshots per cycle | No |
-| `logs/errors/` | Log | Error logs | No |
-| `docs/decisions/` | Markdown | Architecture decision records | Yes |
+| `logs/{mode}/summaries/*.md` | Markdown | Per-cycle narratives (appended 3x/day) | Yes |
+| `logs/{mode}/reports/*.md` | Markdown | End-of-day consolidated report | Yes |
+| `logs/{mode}/decisions/*.json` | JSON | Full Claude analysis with raw response | No |
+| `logs/{mode}/trades/*.json` | JSON | Per-trade records (opens, closes, rejections) | No |
+| `logs/{mode}/portfolio/*.json` | JSON | Per-cycle portfolio snapshots | No |
+| `logs/{mode}/errors/*.log` | Log | Error tracebacks with context | No |
+| `logs/{mode}/anomalies.jsonl` | JSONL | Structured unusual events | No |
+| `logs/{mode}/benchmark.json` | JSON | SPY start price for alpha tracking | No |
+| `logs/{mode}/high_watermark.json` | JSON | Peak equity for drawdown tracking | No |
+| `logs/controls.log` | Log | Dashboard control action audit | No |
+| `docs/decisions/*.md` | Markdown | Architecture decision records | Yes |
+
+---
+
+## Architecture Decisions
+
+See [docs/decisions/](decisions/) for detailed ADRs.
+
+- [001 — Initial design choices](decisions/001_initial_design_choices.md)
+- [002 — Error handling and dry-run mode](decisions/002_error_handling_and_dry_run.md)
+- [003 — Dynamic screener](decisions/003_dynamic_screener.md)
+
+See [FUTURE_ROADMAP.md](FUTURE_ROADMAP.md) for next-level development ideas.

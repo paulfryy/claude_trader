@@ -487,13 +487,165 @@ python3.11 -m pip install --user -e .
 
 ---
 
+## Dashboard Service
+
+In addition to the two trading agents, a Flask-based read-only dashboard runs
+on port 8080 for monitoring and controls.
+
+### Create the dashboard service
+
+```bash
+sudo tee /etc/systemd/system/trading-dashboard.service << 'EOF'
+[Unit]
+Description=Claude Trading Agent Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/claude_agent
+Environment=TZ=America/New_York
+Environment=DASHBOARD_PORT=8080
+Environment=DASHBOARD_HOST=0.0.0.0
+ExecStart=/usr/bin/python3.11 -m src.dashboard.app
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable trading-dashboard
+sudo systemctl start trading-dashboard
+```
+
+### Open port 8080 to your IP
+
+1. Go to **EC2 → Security Groups** in the AWS Console
+2. Click your instance's security group
+3. **Inbound rules → Edit → Add rule**
+4. Type: Custom TCP, Port: 8080, Source: **My IP**, Description: Dashboard
+5. Save
+
+Visit `http://YOUR-EC2-IP:8080` from your browser.
+
+---
+
+## Dashboard Controls Sudoers
+
+For the Controls page to restart services and pull code, `ec2-user` needs
+passwordless sudo on only these specific commands (NOT general sudo):
+
+```bash
+sudo tee /etc/sudoers.d/trading-agent-controls << 'EOF'
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl restart trading-agent-paper
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl restart trading-agent-live
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl restart trading-dashboard
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl start trading-agent-paper
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl start trading-agent-live
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl stop trading-agent-paper
+ec2-user ALL=(root) NOPASSWD: /usr/bin/systemctl stop trading-agent-live
+EOF
+
+sudo chmod 440 /etc/sudoers.d/trading-agent-controls
+sudo visudo -c
+```
+
+Test (should NOT prompt for password):
+```bash
+sudo systemctl restart trading-agent-paper
+```
+
+---
+
+## Daily Operations
+
+Once everything is set up, day-to-day operation is mostly dashboard-driven.
+
+### Normal workflow after a code push
+1. On your local machine: commit and `git push` to GitHub
+2. In your browser: open the dashboard Controls page
+3. Click **Git Pull** (updates files on disk)
+4. Click **Restart** on each affected service:
+   - `trading-agent-live` (if agent code changed)
+   - `trading-agent-paper` (if agent code changed)
+   - `trading-dashboard` (if dashboard code changed — deferred 2s restart)
+
+### Check on the agent remotely
+
+```bash
+ssh -i C:\Users\fourf\.ssh\trading-agent-key.pem ec2-user@YOUR-IP
+```
+
+Common commands on the server:
+```bash
+# Read today's live EOD report
+cat ~/claude_agent/logs/live/reports/$(date +%Y-%m-%d).md
+
+# Read today's paper EOD report
+cat ~/claude_agent/logs/paper/reports/$(date +%Y-%m-%d).md
+
+# Stream live logs
+sudo journalctl -u trading-agent-live -f
+
+# Check if services are running
+sudo systemctl status trading-agent-live --no-pager
+sudo systemctl status trading-agent-paper --no-pager
+sudo systemctl status trading-dashboard --no-pager
+
+# Recent anomalies
+cat ~/claude_agent/logs/live/anomalies.jsonl | tail -20
+```
+
+### Deploy new env file settings
+
+```powershell
+# From Windows PowerShell, in the project dir
+scp -i C:\Users\fourf\.ssh\trading-agent-key.pem .env.live ec2-user@YOUR-IP:/home/ec2-user/claude_agent/
+scp -i C:\Users\fourf\.ssh\trading-agent-key.pem .env.paper ec2-user@YOUR-IP:/home/ec2-user/claude_agent/
+```
+
+Then on the server:
+```bash
+chmod 600 ~/claude_agent/.env.live ~/claude_agent/.env.paper
+sudo systemctl restart trading-agent-live trading-agent-paper
+```
+
+### Emergency stop
+
+```bash
+sudo systemctl stop trading-agent-live
+```
+
+To also close all open positions (via the Alpaca web dashboard is easiest, but from the server):
+```bash
+python3.11 -c "
+from dotenv import load_dotenv
+load_dotenv('.env.live', override=True)
+from alpaca.trading.client import TradingClient
+from src.config import load_settings
+s = load_settings(env_file='.env.live')
+c = TradingClient(api_key=s.alpaca.api_key, secret_key=s.alpaca.secret_key, paper=False)
+c.cancel_orders()
+c.close_all_positions(cancel_orders=True)
+print('All positions closed')
+"
+```
+
+---
+
 ## Cost Summary
 
 | Item | Monthly Cost |
 |---|---|
-| EC2 t4g.nano | $3.07 |
+| EC2 t4g.nano (or t3.micro free tier) | $3.07 (or $0) |
 | EBS storage (8GB) | $0.64 |
+| S3 log backup (optional) | ~$0.02 |
 | Data transfer | ~$0 (minimal) |
-| **Total** | **~$3.71/month** |
+| Anthropic API (~3 cycles/day × 22 days) | ~$2-3 |
+| Finnhub earnings calendar (free tier) | $0 |
+| **Total** | **~$6-7/month** |
 
-Or $0/month with t3.micro free tier (12 months).
+With AWS free tier: **~$3/month** in year 1 (just API costs).
