@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.config import PORTFOLIO_LOGS_DIR, Settings, get_logs_dir
+from src.logging_utils.deposits import get_capital_base
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,14 @@ class PortfolioTracker:
         self._watermark_file = self._logs_dir / "high_watermark.json"
         self._high_watermark: float = self._load_watermark()
 
+    @property
+    def capital_base(self) -> float:
+        """
+        Current capital base: starting capital + all recorded deposits/withdrawals.
+        This is what total return is measured against.
+        """
+        return get_capital_base(self.settings)
+
     def build_state(self, account_info: dict, positions: list[dict]) -> dict:
         """
         Build a complete portfolio state snapshot.
@@ -39,9 +48,13 @@ class PortfolioTracker:
         total_position_value = sum(abs(p["market_value"]) for p in positions)
         total_unrealized_pl = sum(p["unrealized_pl"] for p in positions)
 
+        capital_base = self.capital_base
+
         if self.settings.is_paper:
-            # Paper: virtual equity model — simulate smaller account
-            equity = self._starting_capital + total_unrealized_pl
+            # Paper: virtual equity model — simulate smaller account.
+            # Uses capital_base (starting + deposits) so paper can also
+            # simulate "adding money" mid-stream.
+            equity = capital_base + total_unrealized_pl
             cash = equity - total_position_value
         else:
             # Live: use real Alpaca numbers
@@ -67,8 +80,11 @@ class PortfolioTracker:
         )
         equity_value = total_position_value - options_value
 
-        # P&L
-        total_return_pct = (equity - self._starting_capital) / self._starting_capital
+        # P&L — measured against capital base (not static starting capital)
+        # capital_base = starting + sum(deposits) so deposits don't distort return
+        total_return_pct = (
+            (equity - capital_base) / capital_base if capital_base > 0 else 0
+        )
 
         # Update high watermark (persisted to disk so it survives restarts)
         if equity > self._high_watermark:
@@ -88,6 +104,7 @@ class PortfolioTracker:
             "equity": equity,
             "cash": cash,
             "starting_capital": self._starting_capital,
+            "capital_base": capital_base,
             "total_return_pct": total_return_pct,
             # Positions and exposure
             "total_position_value": total_position_value,

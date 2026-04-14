@@ -11,7 +11,7 @@
         <div class="stat">
             <div class="label">Current Equity</div>
             <div class="value">{{ stats.portfolio.current_equity|fmt_money }}</div>
-            <div class="sub">Starting: {{ stats.starting_capital|fmt_money }}</div>
+            <div class="sub">Capital base: {{ stats.capital_base|fmt_money }}</div>
         </div>
         <div class="stat {% if stats.portfolio.total_return_pct > 0 %}positive{% elif stats.portfolio.total_return_pct < 0 %}negative{% endif %}">
             <div class="label">Total Return</div>
@@ -156,6 +156,32 @@
     </table>
     {% else %}
     <p class="muted">No closed trades yet. Stats will populate as positions are closed.</p>
+    {% endif %}
+</section>
+
+<section>
+    <h3>Capital History</h3>
+    <p class="muted">Deposits and withdrawals. Record new ones via <code>python -m src.tools.deposit --env .env.live --amount 1200 --note "..."</code></p>
+    {% if stats.deposits %}
+    <table>
+        <tr><th>Date</th><th>Amount</th><th>Note</th></tr>
+        {% for d in stats.deposits|reverse %}
+        <tr>
+            <td>{{ d.timestamp[:10] }}</td>
+            <td class="{% if d.amount > 0 %}positive{% elif d.amount < 0 %}negative{% endif %}">
+                {% if d.amount > 0 %}+{% endif %}${{ "%.2f"|format(d.amount) }}
+            </td>
+            <td>{{ d.note or '—' }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <p class="muted">
+        Starting capital: {{ stats.starting_capital|fmt_money }} ·
+        Net deposits: ${{ "%.2f"|format(stats.capital_base - stats.starting_capital) }} ·
+        Capital base: {{ stats.capital_base|fmt_money }}
+    </p>
+    {% else %}
+    <p class="muted">No deposits recorded. Capital base = starting capital ({{ stats.starting_capital|fmt_money }}).</p>
     {% endif %}
 </section>
 

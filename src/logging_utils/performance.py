@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.config import Settings, get_logs_dir, get_portfolio_logs_dir, get_trade_logs_dir
+from src.logging_utils.deposits import get_capital_base, load_deposits
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class PerformanceAnalyzer:
         self.settings = settings
         self.mode = settings.trading_mode
         self.starting_capital = settings.starting_capital
+        self.capital_base = get_capital_base(settings)
 
     def get_equity_curve(self) -> list[dict]:
         """
@@ -64,7 +66,7 @@ class PerformanceAnalyzer:
         for date in sorted(daily.keys()):
             snap = daily[date]
             equity = snap.get("equity", self.starting_capital)
-            portfolio_return = (equity - self.starting_capital) / self.starting_capital
+            portfolio_return = (equity - self.capital_base) / self.capital_base
             curve.append({
                 "date": date,
                 "equity": equity,
@@ -154,12 +156,12 @@ class PerformanceAnalyzer:
         curve = self.get_equity_curve()
         if not curve:
             return {
-                "current_equity": self.starting_capital,
+                "current_equity": self.capital_base,
                 "total_return_pct": 0,
                 "max_drawdown_pct": 0,
                 "sharpe": None,
                 "days_active": 0,
-                "peak_equity": self.starting_capital,
+                "peak_equity": self.capital_base,
             }
 
         equities = [p["equity"] for p in curve]
@@ -192,7 +194,7 @@ class PerformanceAnalyzer:
 
         return {
             "current_equity": current,
-            "total_return_pct": (current - self.starting_capital) / self.starting_capital,
+            "total_return_pct": (current - self.capital_base) / self.capital_base,
             "max_drawdown_pct": max_dd,
             "peak_equity": peak,
             "sharpe": sharpe,
@@ -210,6 +212,8 @@ class PerformanceAnalyzer:
             "trades": trades,
             "spy": spy,
             "starting_capital": self.starting_capital,
+            "capital_base": self.capital_base,
+            "deposits": load_deposits(self.mode),
             "mode": self.mode,
         }
 
@@ -243,7 +247,7 @@ class PerformanceAnalyzer:
                 return None
 
             spy_return = (current_price - start) / start
-            portfolio_return = (current_equity - self.starting_capital) / self.starting_capital
+            portfolio_return = (current_equity - self.capital_base) / self.capital_base
             raw_alpha = portfolio_return - spy_return
 
             # Deployed capital alpha — compare only dollars actually at work
