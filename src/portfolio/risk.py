@@ -40,6 +40,8 @@ class RiskManager:
         """
         checks = [
             self._check_drawdown_circuit_breaker,
+            self._check_max_positions,
+            self._check_sector_concentration,
             self._check_catalyst_size,
             self._check_position_size,
             self._check_total_exposure,
@@ -88,6 +90,77 @@ class RiskManager:
                 approved=False,
                 signal=signal,
                 reason=f"Circuit breaker: drawdown {drawdown:.1%} >= {self.risk.max_drawdown_pct:.1%} limit. No new positions.",
+            )
+        return RiskCheckResult(approved=True, signal=signal)
+
+    def _check_sector_concentration(
+        self, signal: TradeSignal, state: dict
+    ) -> RiskCheckResult:
+        """
+        Limit positions in the same sector to avoid concentration risk disguised
+        as diversification. Skip options (OCC symbols) and existing holdings.
+        """
+        if signal.action != TradeAction.BUY:
+            return RiskCheckResult(approved=True, signal=signal)
+
+        from src.data.universe import get_sector
+
+        target_sector = get_sector(signal.symbol)
+        # Unknown / broad_market sectors are exempt from the limit
+        if target_sector in ("other", "broad_market"):
+            return RiskCheckResult(approved=True, signal=signal)
+
+        positions = state.get("positions", [])
+        equity_positions = [p for p in positions if len(p.get("symbol", "")) <= 6]
+
+        # Count positions in the same sector (excluding this symbol if already held)
+        same_sector = [
+            p for p in equity_positions
+            if get_sector(p.get("symbol", "")) == target_sector
+            and p.get("symbol") != signal.symbol
+        ]
+
+        max_per_sector = self.risk.max_positions_per_sector
+        if len(same_sector) >= max_per_sector:
+            sector_symbols = [p.get("symbol") for p in same_sector]
+            return RiskCheckResult(
+                approved=False,
+                signal=signal,
+                reason=(
+                    f"Sector cap hit: already hold {len(same_sector)} {target_sector} "
+                    f"positions ({', '.join(sector_symbols)}). "
+                    f"Max {max_per_sector} per sector to avoid concentration."
+                ),
+            )
+        return RiskCheckResult(approved=True, signal=signal)
+
+    def _check_max_positions(
+        self, signal: TradeSignal, state: dict
+    ) -> RiskCheckResult:
+        """
+        Enforce maximum concurrent positions — concentrate on best setups.
+        Only equity buys count toward this. Options and sells are exempt.
+        """
+        if signal.action != TradeAction.BUY:
+            return RiskCheckResult(approved=True, signal=signal)
+
+        # Count current non-options positions
+        current_positions = state.get("positions", [])
+        equity_positions = [p for p in current_positions if len(p.get("symbol", "")) <= 6]
+        # Is this symbol already held? Then adding doesn't increase the count
+        existing_symbols = {p.get("symbol") for p in equity_positions}
+        if signal.symbol in existing_symbols:
+            return RiskCheckResult(approved=True, signal=signal)
+
+        max_positions = self.risk.max_total_positions
+        if len(equity_positions) >= max_positions:
+            return RiskCheckResult(
+                approved=False,
+                signal=signal,
+                reason=(
+                    f"At position cap ({len(equity_positions)}/{max_positions}). "
+                    f"Close a weaker position first, or rank this idea higher and rotate."
+                ),
             )
         return RiskCheckResult(approved=True, signal=signal)
 

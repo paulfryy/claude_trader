@@ -18,11 +18,18 @@
             <div class="value">{{ stats.portfolio.total_return_pct|fmt_pct }}</div>
         </div>
         {% if stats.spy %}
-        <div class="stat {% if stats.spy.alpha > 0 %}positive{% elif stats.spy.alpha < 0 %}negative{% endif %}">
-            <div class="label">Alpha vs SPY</div>
-            <div class="value">{{ stats.spy.alpha|fmt_pct }}</div>
-            <div class="sub">SPY: {{ stats.spy.spy_return_pct|fmt_pct }}</div>
+        <div class="stat {% if stats.spy.raw_alpha > 0 %}positive{% elif stats.spy.raw_alpha < 0 %}negative{% endif %}">
+            <div class="label">Raw Alpha vs SPY</div>
+            <div class="value">{{ stats.spy.raw_alpha|fmt_pct }}</div>
+            <div class="sub">Total portfolio (incl. cash drag)</div>
         </div>
+        {% if stats.spy.deployed_alpha is not none %}
+        <div class="stat {% if stats.spy.deployed_alpha > 0 %}positive{% elif stats.spy.deployed_alpha < 0 %}negative{% endif %}">
+            <div class="label">Deployed Alpha</div>
+            <div class="value">{{ stats.spy.deployed_alpha|fmt_pct }}</div>
+            <div class="sub">Per dollar at work (SPY: {{ stats.spy.spy_return_pct|fmt_pct }})</div>
+        </div>
+        {% endif %}
         {% endif %}
         <div class="stat">
             <div class="label">Max Drawdown</div>

@@ -174,42 +174,62 @@ PORTFOLIO RULES:
 - PDT limit: {risk.max_day_trades} day trades per 5 rolling business days (NEVER propose selling a position that was opened today — this counts as a day trade)
 - Max drawdown circuit breaker: {risk.max_drawdown_pct:.0%}
 
-STRATEGY:
-- Swing trading US equities and ETFs (hold 2-14 days typically)
-- Focus on high-probability setups with favorable risk/reward (>2:1)
-- Preserve capital — don't force trades when conditions are unclear
-- **Earnings awareness**: Check the UPCOMING EARNINGS section. Never open a new swing position that would be held through an earnings report unless it's explicitly a catalyst trade (is_catalyst_trade=true). For existing positions with upcoming earnings, decide to exit before the report or explicitly hold through it with a stated rationale.
-- Deploy capital based on market regime:
-  * Bull regime: 70-90% deployed — lean into momentum, find strong setups
-  * Sideways regime: 50-70% deployed — be selective, tighter criteria
-  * Volatile regime: 40-60% deployed — preserve capital, smaller positions, hedges
-  * Bear regime: 20-40% deployed — mostly cash, only short-term trades or put hedges
-  Adjust your deployment target based on the regime you identify. Don't be 90% deployed in a bear market.
-- You CAN and SHOULD open new positions in symbols you don't already hold if the setup is good, even if you opened other positions earlier today.
+STRATEGY — AGGRESSIVE, CONCENTRATED, DECISIVE:
+Your goal is to BEAT the S&P 500 by a meaningful margin, not match it. Matching the market is a failure. Be bold, selective, and willing to concentrate capital on your best ideas.
 
-DAILY POSITION LIMIT (critical — PDT constraint):
-- Maximum {risk.max_new_positions_per_day} NEW positions per day (equities + options combined).
-- This is because each new buy needs a stop-loss, and Alpaca counts same-day stops against the PDT limit.
-- Consider ALL candidates (equities AND options) together before deciding. Rank every opportunity by conviction, risk/reward, and setup quality. Only include the TOP {risk.max_new_positions_per_day} as trade_signals.
-- Do NOT just pick the first 3 equities — an options play might be a better use of one of your 3 slots.
-- Sells and closes do NOT count against this limit.
-- If you already opened positions earlier today (check PREVIOUS ANALYSIS section), subtract those from the limit.
+CORE PRINCIPLES:
+1. **Quality over quantity.** Max {risk.max_total_positions} concurrent positions. Fewer, bigger bets on the strongest setups. Scatter-shot diversification is a loser's game on a small account.
+2. **Conviction dictates size.** Reward certainty:
+   - HIGH conviction: 15-20% of portfolio (this is how you beat the market)
+   - MEDIUM conviction: 8-12% (decent setups you believe in)
+   - LOW conviction: DO NOT TAKE THE TRADE. Skip it. Don't force trades you're not sure about.
+3. **Relative strength only.** Every new buy must be OUTPERFORMING SPY over the last 5-10 days. If a stock is just rising with the market, it's not giving you alpha — it's giving you beta. Don't pay for beta.
+4. **Rotate ruthlessly.** If a new idea is clearly stronger than one of your current positions, close the weak one and open the new one in the same cycle. Don't hold weak positions out of inertia.
+5. **Take profits, don't wait for perfect exits.** See EXIT RULES below.
 
-POSITION ROTATION (important):
-- If you see a better opportunity but the portfolio is near the 90% exposure cap, close a weaker position to make room for the stronger one.
-- Use positions_to_close alongside trade_signals in the same response — closes are processed first, so the freed exposure is available for the new buys.
-- Compare your existing positions to the screener candidates. Ask yourself: "Is my worst current position a better bet than the best new candidate?" If not, rotate.
-- Rotation candidates: positions below your entry, positions with weakening technicals, positions where the original thesis is broken, positions approaching their time horizon without gains.
-- Do not rotate for the sake of rotating — only swap when the new idea is clearly stronger than the existing one (higher conviction, better risk/reward, stronger technicals).
+REGIME-DRIVEN AGGRESSION (deploy capital based on opportunity, not fear):
+- **Bull regime, HIGH conviction setups exist**: 80-90% deployed in 4-6 positions. Push hard.
+- **Bull regime, only MEDIUM setups**: 50-70% deployed. Be picky.
+- **Sideways**: 40-60% deployed. Selective, defensive positioning.
+- **Volatile**: 30-50% deployed. Smaller positions, mandatory hedges, options for defined risk.
+- **Bear**: 10-30% deployed. Mostly cash. Short-term trades only, or long puts/inverse ETFs.
 
-OPTIONS STRATEGY (Level 3 approved — you CAN trade options):
-- Use options for 10-20% of the portfolio. Mix equity and options positions.
-- Buy calls when you're bullish on a stock but want leveraged upside with defined risk
-- Buy puts as hedges against portfolio downside or to profit from bearish setups
-- Options are especially useful for: expensive stocks where equity positions would be too large, hedging existing positions, high-conviction directional bets
-- When proposing options, you MUST include: strike_price, expiration_date (YYYY-MM-DD, pick the nearest monthly expiry), option_type ("call" or "put")
-- Prefer options with 2-4 weeks to expiry and strikes near the money (within 5% of current price)
-- Each options position: 5-10% of portfolio (the premium IS your max loss)
+EXIT RULES — HARD (non-negotiable, even if your thesis still "feels right"):
+- **Take 50% profit at halfway-to-target.** If entry $100, target $120, stop $92: when price hits $110 (halfway), close HALF of the position. Let the rest run with a trailing stop.
+- **Close any position down 10% from entry.** No hoping, no averaging down. The thesis was wrong.
+- **Close any position flat (within ±3%) after 5 days.** Capital tied up in a non-mover is wasted. Rotate.
+- **Close any position that hit its initial target.** Don't get greedy waiting for more — take the win, redeploy.
+- **Close any position whose thesis has broken.** News reversal, sector rotation, chart breakdown. Be decisive.
+
+POSITION ROTATION (use this aggressively):
+- Every cycle, rank your existing positions vs screener candidates. Ask: "If I had cash, would I buy this current position today?" If no, close it.
+- Rotation candidates (close these first when making room): losers, flat positions, weak technicals, positions where a better opportunity exists.
+- Use positions_to_close and trade_signals together — closes free up room for the new entry in the same cycle.
+
+OPTIONS STRATEGY — USE THEM FOR LEVERAGE (Level 3 approved):
+- Options should be 20-30% of portfolio, not an afterthought. Max 40%.
+- **High-conviction bullish calls**: Buy calls instead of equity when you want leverage. Example: Strong bull setup on NVDA, instead of buying $400 of equity, buy a $300 call that gives you $3,000+ of exposure if NVDA moves 5%.
+- **Defined-risk earnings plays**: Catalyst trades via options give you upside without overnight blowup risk.
+- **Hedges**: Long puts when you're worried about a pullback but want to stay deployed.
+- When proposing options: include strike_price, expiration_date (YYYY-MM-DD, 2-6 weeks out), option_type ("call" or "put").
+- Prefer near-the-money strikes (within 5% of current) for directional bets. Go slightly OTM for cheaper leverage on high-conviction trades.
+
+EARNINGS AWARENESS:
+- Check the UPCOMING EARNINGS section every cycle.
+- Never open a new swing position that would be held through an earnings report unless it's a deliberate catalyst trade (is_catalyst_trade=true).
+- For existing positions with earnings coming: decide EXPLICITLY to exit before, or explicitly hold through with a stated rationale in your cycle summary.
+
+DAILY POSITION LIMIT (PDT constraint):
+- Max {risk.max_new_positions_per_day} NEW positions per day (equities + options combined).
+- You do NOT have to use all 3 slots. Zero new positions is acceptable if nothing meets your bar. Mediocre setups waste slots.
+- If you only have 1 HIGH-conviction idea, take just that one. Size it big.
+- Consider ALL candidates together (equities + options). Rank by quality. Only the top 3 make the cut.
+- Sells and closes don't count against this limit.
+
+SECTOR DIVERSIFICATION:
+- Max {risk.max_positions_per_sector} positions per sector (financials, technology, energy, etc.)
+- 3 bank stocks = 1 concentrated bet on financials, not 3 diversified positions.
+- Mix sectors to get real diversification.
 
 OPTIONS PRICING AND SIZING (CRITICAL):
 - Options contracts represent 100 shares. A contract quoted at $5 premium costs $500 total ($5 × 100).

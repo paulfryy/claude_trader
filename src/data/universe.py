@@ -92,6 +92,126 @@ MAJOR_ETFS = [
     "XME",    # Metals & Mining
 ]
 
+# Sector classification — used for concentration limits.
+# This is a coarse mapping; covers most common tickers we trade.
+# Unknown symbols fall into "other" and are lenient (no concentration limit).
+SECTOR_MAP = {
+    # Technology
+    "AAPL": "technology", "MSFT": "technology", "NVDA": "technology", "GOOGL": "technology",
+    "GOOG": "technology", "META": "technology", "AMZN": "technology", "TSLA": "technology",
+    "AMD": "technology", "INTC": "technology", "ORCL": "technology", "CRM": "technology",
+    "ADBE": "technology", "NFLX": "technology", "AVGO": "technology", "QCOM": "technology",
+    "CSCO": "technology", "IBM": "technology", "TXN": "technology", "MU": "technology",
+    "SMCI": "technology", "PLTR": "technology", "CRWD": "technology", "PANW": "technology",
+    "NOW": "technology", "SNOW": "technology", "DELL": "technology", "HPE": "technology",
+    "HPQ": "technology", "GLW": "technology", "KLAC": "technology", "LRCX": "technology",
+    "AMAT": "technology", "ANET": "technology", "CDNS": "technology", "SNPS": "technology",
+    "FTNT": "technology", "ADI": "technology", "ADSK": "technology", "MCHP": "technology",
+    "MRVL": "technology", "INTU": "technology", "WDAY": "technology", "CTSH": "technology",
+    "APH": "technology", "ON": "technology", "NXPI": "technology", "MPWR": "technology",
+    "XLK": "technology", "SMH": "technology", "SOXX": "technology",
+
+    # Financials
+    "JPM": "financial", "BAC": "financial", "WFC": "financial", "C": "financial",
+    "GS": "financial", "MS": "financial", "USB": "financial", "PNC": "financial",
+    "TFC": "financial", "FITB": "financial", "RF": "financial", "KEY": "financial",
+    "HBAN": "financial", "CFG": "financial", "BLK": "financial", "SCHW": "financial",
+    "AXP": "financial", "V": "financial", "MA": "financial", "PYPL": "financial",
+    "BK": "financial", "STT": "financial", "NTRS": "financial", "MTB": "financial",
+    "COF": "financial", "SYF": "financial", "IBKR": "financial", "HOOD": "financial",
+    "XLF": "financial", "KRE": "financial", "KBE": "financial",
+
+    # Energy
+    "XOM": "energy", "CVX": "energy", "COP": "energy", "SLB": "energy",
+    "EOG": "energy", "MPC": "energy", "PSX": "energy", "VLO": "energy",
+    "OXY": "energy", "HAL": "energy", "BKR": "energy", "DVN": "energy",
+    "FANG": "energy", "APA": "energy", "EQT": "energy", "TRGP": "energy",
+    "XLE": "energy", "USO": "energy", "OIH": "energy",
+
+    # Healthcare
+    "JNJ": "healthcare", "UNH": "healthcare", "LLY": "healthcare", "PFE": "healthcare",
+    "MRK": "healthcare", "ABBV": "healthcare", "TMO": "healthcare", "ABT": "healthcare",
+    "DHR": "healthcare", "BMY": "healthcare", "AMGN": "healthcare", "CVS": "healthcare",
+    "MDT": "healthcare", "GILD": "healthcare", "ISRG": "healthcare", "CI": "healthcare",
+    "ELV": "healthcare", "REGN": "healthcare", "VRTX": "healthcare", "HUM": "healthcare",
+    "BSX": "healthcare", "SYK": "healthcare", "BDX": "healthcare", "ZTS": "healthcare",
+    "MRNA": "healthcare", "BIIB": "healthcare", "DXCM": "healthcare", "EW": "healthcare",
+    "IDXX": "healthcare", "IQV": "healthcare", "A": "healthcare", "RMD": "healthcare",
+    "HCA": "healthcare", "MCK": "healthcare", "COR": "healthcare", "CNC": "healthcare",
+    "XLV": "healthcare", "IBB": "healthcare", "XBI": "healthcare",
+
+    # Consumer Discretionary
+    "HD": "consumer_disc", "MCD": "consumer_disc", "NKE": "consumer_disc",
+    "LOW": "consumer_disc", "SBUX": "consumer_disc", "TJX": "consumer_disc",
+    "BKNG": "consumer_disc", "ABNB": "consumer_disc", "MAR": "consumer_disc",
+    "HLT": "consumer_disc", "GM": "consumer_disc", "F": "consumer_disc",
+    "CMG": "consumer_disc", "ORLY": "consumer_disc", "AZO": "consumer_disc",
+    "ROST": "consumer_disc", "ULTA": "consumer_disc", "DECK": "consumer_disc",
+    "LULU": "consumer_disc", "YUM": "consumer_disc", "DPZ": "consumer_disc",
+    "DHI": "consumer_disc", "LEN": "consumer_disc", "PHM": "consumer_disc",
+    "NVR": "consumer_disc", "XLY": "consumer_disc",
+
+    # Consumer Staples
+    "PG": "consumer_staples", "KO": "consumer_staples", "PEP": "consumer_staples",
+    "WMT": "consumer_staples", "COST": "consumer_staples", "PM": "consumer_staples",
+    "MO": "consumer_staples", "CL": "consumer_staples", "MDLZ": "consumer_staples",
+    "KMB": "consumer_staples", "GIS": "consumer_staples", "K": "consumer_staples",
+    "HRL": "consumer_staples", "KHC": "consumer_staples", "STZ": "consumer_staples",
+    "KDP": "consumer_staples", "MNST": "consumer_staples", "CLX": "consumer_staples",
+    "CHD": "consumer_staples", "SYY": "consumer_staples", "TGT": "consumer_staples",
+    "DG": "consumer_staples", "DLTR": "consumer_staples", "KR": "consumer_staples",
+    "XLP": "consumer_staples",
+
+    # Industrials
+    "BA": "industrial", "CAT": "industrial", "GE": "industrial", "HON": "industrial",
+    "UPS": "industrial", "RTX": "industrial", "LMT": "industrial", "NOC": "industrial",
+    "GD": "industrial", "DE": "industrial", "FDX": "industrial", "UNP": "industrial",
+    "CSX": "industrial", "NSC": "industrial", "MMM": "industrial", "ETN": "industrial",
+    "EMR": "industrial", "ITW": "industrial", "PH": "industrial", "CMI": "industrial",
+    "ROK": "industrial", "JCI": "industrial", "CARR": "industrial", "OTIS": "industrial",
+    "PCAR": "industrial", "URI": "industrial", "GNRC": "industrial", "LUV": "industrial",
+    "DAL": "industrial", "UAL": "industrial", "AAL": "industrial", "XLI": "industrial",
+
+    # Materials
+    "LIN": "materials", "APD": "materials", "SHW": "materials", "ECL": "materials",
+    "FCX": "materials", "NEM": "materials", "DD": "materials", "DOW": "materials",
+    "PPG": "materials", "CTVA": "materials", "NUE": "materials", "STLD": "materials",
+    "VMC": "materials", "MLM": "materials", "ALB": "materials", "IFF": "materials",
+    "MOS": "materials", "CF": "materials", "XLB": "materials", "GLD": "materials",
+    "SLV": "materials",
+
+    # Real Estate
+    "AMT": "real_estate", "PLD": "real_estate", "EQIX": "real_estate", "CCI": "real_estate",
+    "PSA": "real_estate", "O": "real_estate", "SPG": "real_estate", "WELL": "real_estate",
+    "DLR": "real_estate", "VICI": "real_estate", "AVB": "real_estate", "EQR": "real_estate",
+    "HST": "real_estate", "XLRE": "real_estate",
+
+    # Communications / Media
+    "T": "communications", "VZ": "communications", "TMUS": "communications",
+    "CMCSA": "communications", "DIS": "communications", "WBD": "communications",
+    "CHTR": "communications", "EA": "communications", "TTWO": "communications",
+    "XLC": "communications",
+
+    # Utilities
+    "NEE": "utilities", "SO": "utilities", "DUK": "utilities", "D": "utilities",
+    "AEP": "utilities", "SRE": "utilities", "EXC": "utilities", "XEL": "utilities",
+    "WEC": "utilities", "ED": "utilities", "ETR": "utilities", "ES": "utilities",
+    "XLU": "utilities",
+
+    # Broad market / bonds / international
+    "SPY": "broad_market", "QQQ": "broad_market", "IWM": "broad_market",
+    "DIA": "broad_market", "VTI": "broad_market", "VOO": "broad_market",
+    "TLT": "bonds", "HYG": "bonds", "LQD": "bonds", "IEF": "bonds",
+    "EEM": "international", "VWO": "international", "EFA": "international",
+    "ARKK": "broad_market",
+}
+
+
+def get_sector(symbol: str) -> str:
+    """Get the sector for a symbol, or 'other' if unknown."""
+    return SECTOR_MAP.get(symbol.upper(), "other")
+
+
 # Anchor symbols — always included in Claude's analysis regardless of screening
 ANCHOR_SYMBOLS = ["SPY", "QQQ", "IWM"]
 

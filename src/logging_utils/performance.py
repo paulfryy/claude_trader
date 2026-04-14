@@ -226,7 +226,9 @@ class PerformanceAnalyzer:
 
     def _get_spy_comparison(self, current_equity: float) -> dict | None:
         """
-        Get SPY comparison using recorded start price and a fresh live price.
+        Get SPY comparison with two alpha views:
+        - raw_alpha: portfolio vs SPY since benchmark start (includes cash drag)
+        - deployed_alpha: deployed-capital return vs SPY (fair per-dollar comparison)
         """
         start = self._get_spy_start_price()
         if not start:
@@ -242,13 +244,30 @@ class PerformanceAnalyzer:
 
             spy_return = (current_price - start) / start
             portfolio_return = (current_equity - self.starting_capital) / self.starting_capital
-            alpha = portfolio_return - spy_return
+            raw_alpha = portfolio_return - spy_return
+
+            # Deployed capital alpha — compare only dollars actually at work
+            # Pull current positions to compute deployed capital
+            positions = market.get_positions()
+            deployed_alpha = None
+            avg_deployment = None
+            if positions:
+                total_pl = sum(p["unrealized_pl"] for p in positions)
+                total_value = sum(abs(p["market_value"]) for p in positions)
+                total_cost = total_value - total_pl
+                if total_cost > 0:
+                    deployed_return = total_pl / total_cost
+                    deployed_alpha = deployed_return - spy_return
+                    avg_deployment = total_value / current_equity if current_equity > 0 else None
 
             return {
                 "start_price": start,
                 "current_price": current_price,
                 "spy_return_pct": spy_return,
-                "alpha": alpha,
+                "alpha": raw_alpha,  # kept for backwards compat
+                "raw_alpha": raw_alpha,
+                "deployed_alpha": deployed_alpha,
+                "avg_deployment_pct": avg_deployment,
             }
         except Exception as e:
             logger.debug("Could not fetch SPY comparison: %s", e)

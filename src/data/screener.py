@@ -50,14 +50,19 @@ class Screener:
         universe = get_universe()
         anchors = get_anchor_symbols()
 
+        # Compute SPY's 10-day return for relative strength filtering
+        spy_return_10d = self._get_spy_10d_return()
+        if spy_return_10d is not None:
+            logger.info("SPY 10-day return: %.2f%% (used for relative strength filter)", spy_return_10d * 100)
+
         # Tier 1: Quick filter on price and volume
         logger.info("Tier 1: Scanning %d symbols (snapshots)...", len(universe))
         tier1_passed, tier1_by_volume = self._tier1_filter(universe)
         logger.info("Tier 1: %d symbols passed price/volume filters", len(tier1_passed))
 
-        # Tier 2: Fetch bars + indicators, apply signal filters
+        # Tier 2: Fetch bars + indicators, apply signal filters + relative strength
         logger.info("Tier 2: Analyzing %d symbols (bars + indicators)...", len(tier1_passed))
-        scored = self._tier2_filter(tier1_passed)
+        scored = self._tier2_filter(tier1_passed, spy_return_10d=spy_return_10d)
         logger.info("Tier 2: %d symbols have actionable signals", len(scored))
 
         # Sort by score descending, take top N
@@ -133,10 +138,12 @@ class Screener:
         by_volume.sort(key=lambda x: x[1], reverse=True)
         return passed, by_volume
 
-    def _tier2_filter(self, symbols: list[str]) -> list[tuple[str, float]]:
+    def _tier2_filter(
+        self, symbols: list[str], spy_return_10d: float | None = None,
+    ) -> list[tuple[str, float]]:
         """
-        Tier 2: Fetch bars, compute indicators, and score symbols on signal strength.
-        Returns list of (symbol, score) for symbols with actionable signals.
+        Tier 2: Fetch bars, compute indicators, score signals, and filter by
+        relative strength (only stocks outperforming SPY get through).
         """
         scored = []
         chunk_size = 50
@@ -159,7 +166,6 @@ class Screener:
             if df.empty:
                 continue
 
-            # Process each symbol individually
             for sym in chunk:
                 try:
                     if isinstance(df.index, pd.MultiIndex) and sym in df.index.get_level_values("symbol"):
@@ -170,8 +176,21 @@ class Screener:
                     if len(sym_df) < 20:
                         continue
 
+                    # Relative strength: 10-day return of this symbol vs SPY
+                    # Only boost/filter when we have SPY data to compare against
+                    rs_boost = 0.0
+                    if spy_return_10d is not None and len(sym_df) >= 11:
+                        sym_return_10d = (sym_df["close"].iloc[-1] - sym_df["close"].iloc[-11]) / sym_df["close"].iloc[-11]
+                        rel_strength = sym_return_10d - spy_return_10d
+                        # Skip stocks lagging SPY by more than 1% — market beta, not alpha
+                        if rel_strength < -0.01:
+                            continue
+                        # Boost score proportionally to outperformance
+                        # +2% outperformance = +2 points, +5% = +5 points
+                        rs_boost = rel_strength * 100
+
                     sym_df = add_all_indicators(sym_df)
-                    score = self._score_signals(sym_df)
+                    score = self._score_signals(sym_df) + rs_boost
 
                     if score > 0:
                         scored.append((sym, score))
@@ -179,6 +198,26 @@ class Screener:
                     logger.debug("Scoring failed for %s: %s", sym, e)
 
         return scored
+
+    def _get_spy_10d_return(self) -> float | None:
+        """Fetch SPY's 10-day return for relative strength comparison."""
+        try:
+            start = datetime.now() - timedelta(days=30)
+            request = StockBarsRequest(
+                symbol_or_symbols="SPY",
+                timeframe=TimeFrame.Day,
+                start=start,
+            )
+            bars = self._client.get_stock_bars(request)
+            df = bars.df
+            if df.empty or len(df) < 11:
+                return None
+            if isinstance(df.index, pd.MultiIndex):
+                df = df.reset_index(level="symbol", drop=True)
+            return (df["close"].iloc[-1] - df["close"].iloc[-11]) / df["close"].iloc[-11]
+        except Exception as e:
+            logger.debug("SPY 10d return fetch failed: %s", e)
+            return None
 
     def _score_signals(self, df: pd.DataFrame) -> float:
         """

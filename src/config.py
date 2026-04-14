@@ -84,14 +84,16 @@ class ClaudeSettings(BaseSettings):
 class RiskSettings(BaseSettings):
     model_config = {**_ENV_COMMON, "env_prefix": ""}
 
-    max_position_pct: float = Field(default=0.15, description="Max % of portfolio in one position")
+    max_position_pct: float = Field(default=0.20, description="Max % of portfolio in one position (high conviction)")
     max_catalyst_position_pct: float = Field(default=0.05, description="Max % for catalyst/overnight trades")
     max_total_exposure_pct: float = Field(default=0.90, description="Max % of portfolio deployed")
-    max_options_exposure_pct: float = Field(default=0.30, description="Max % in options")
+    max_options_exposure_pct: float = Field(default=0.40, description="Max % in options")
     max_drawdown_pct: float = Field(default=0.15, description="Halt if portfolio drops this %")
     stop_loss_default_pct: float = Field(default=0.08, description="Default stop-loss %")
     max_day_trades: int = Field(default=3, description="PDT limit per 5 rolling business days")
     max_new_positions_per_day: int = Field(default=3, description="Max new positions opened per day — ensures every position gets a stop-loss")
+    max_total_positions: int = Field(default=6, description="Max concurrent positions — concentrate on best setups")
+    max_positions_per_sector: int = Field(default=2, description="Max positions in a single sector to avoid concentration")
 
 
 class Settings(BaseSettings):
