@@ -24,6 +24,7 @@ from src.config import get_decision_logs_dir, get_logs_dir, get_summary_dir, loa
 from src.dashboard import controls
 from src.data.market_data import MarketDataClient
 from src.logging_utils.anomaly_log import ANOMALY_TYPES, count_by_type, read_anomalies
+from src.logging_utils.deposits import get_capital_base
 from src.logging_utils.performance import PerformanceAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -257,7 +258,7 @@ def overview():
         total_value = sum(abs(p["market_value"]) for p in live_positions)
         if mode == "paper":
             settings = load_env_for_mode("paper")
-            equity = settings.starting_capital + total_pl
+            equity = get_capital_base(settings) + total_pl
             cash = equity - total_value
         else:
             equity = live_account["equity"]
@@ -276,18 +277,16 @@ def overview():
         equity = cash = exposure = total_pl = num_positions = 0
         data_source = "no data"
 
-    # Starting capital for return calculation
+    # Capital base (starting capital + net deposits) for return calculation
     try:
         settings = load_env_for_mode(mode)
+        capital_base = get_capital_base(settings)
         starting_capital = settings.starting_capital
     except Exception:
+        capital_base = equity
         starting_capital = equity
 
-    if mode == "live":
-        # For live, total return should use starting capital
-        total_return_pct = (equity - starting_capital) / starting_capital if starting_capital > 0 else 0
-    else:
-        total_return_pct = (equity - starting_capital) / starting_capital if starting_capital > 0 else 0
+    total_return_pct = (equity - capital_base) / capital_base if capital_base > 0 else 0
 
     # Alpha vs SPY
     alpha = None
@@ -304,6 +303,7 @@ def overview():
         total_return_pct=total_return_pct,
         num_positions=num_positions,
         starting_capital=starting_capital,
+        capital_base=capital_base,
         benchmark=benchmark,
         alpha=alpha,
         latest_decision=latest_decision,
