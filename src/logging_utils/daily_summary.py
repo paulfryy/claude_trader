@@ -14,6 +14,28 @@ from src.config import LOGS_DIR, get_summary_dir
 logger = logging.getLogger(__name__)
 
 
+def _parse_occ_symbol(occ: str) -> tuple[str, str, float] | None:
+    """
+    Parse an OCC option symbol into (expiry_iso, type, strike).
+    Format: UNDERLYING + YYMMDD + C/P + STRIKE*1000 (8 digits).
+    e.g. "AMZN260501C00235000" -> ("2026-05-01", "CALL", 235.0)
+    """
+    if not occ or len(occ) < 16:
+        return None
+    try:
+        strike_raw = occ[-8:]
+        cp = occ[-9]
+        date_raw = occ[-15:-9]
+        if cp not in ("C", "P") or not strike_raw.isdigit() or not date_raw.isdigit():
+            return None
+        expiry = f"20{date_raw[0:2]}-{date_raw[2:4]}-{date_raw[4:6]}"
+        strike = int(strike_raw) / 1000
+        opt_type = "CALL" if cp == "C" else "PUT"
+        return expiry, opt_type, strike
+    except Exception:
+        return None
+
+
 def write_daily_summary(
     analysis: MarketAnalysis,
     portfolio_state: dict,
@@ -81,6 +103,11 @@ def write_daily_summary(
                     f.write(f"${trade['notional']:.2f} notional")
                 elif trade.get("contracts"):
                     f.write(f"{trade['contracts']} contracts")
+                    occ = trade.get("occ_symbol")
+                    parsed = _parse_occ_symbol(occ) if occ else None
+                    if parsed:
+                        expiry, opt_type, strike = parsed
+                        f.write(f" · {opt_type} ${strike:g} exp {expiry}")
                 elif trade.get("qty"):
                     f.write(f"{trade['qty']} shares")
                 f.write(f" (Order ID: {trade.get('order_id', 'N/A')})\n")
@@ -89,7 +116,14 @@ def write_daily_summary(
         if closed:
             f.write("### Positions Closed\n")
             for c in closed:
-                f.write(f"- **{c.get('symbol')}** — closed\n")
+                sym = c.get("symbol", "")
+                parsed = _parse_occ_symbol(sym)
+                if parsed:
+                    expiry, opt_type, strike = parsed
+                    underlying = sym[: -15]
+                    f.write(f"- **{underlying} {opt_type} ${strike:g} exp {expiry}** — closed\n")
+                else:
+                    f.write(f"- **{sym}** — closed\n")
             f.write("\n")
 
         # Trade rationales (the most important part for learning)
