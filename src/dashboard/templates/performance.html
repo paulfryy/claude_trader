@@ -93,7 +93,7 @@
         </div>
         <div class="stat">
             <div class="label">Profit Factor</div>
-            <div class="value">{{ "%.2f"|format(stats.trades.profit_factor) if stats.trades.profit_factor != float('inf') else '∞' }}</div>
+            <div class="value">{{ "%.2f"|format(stats.trades.profit_factor) if stats.trades.profit_factor < 1e12 else '∞' }}</div>
             <div class="sub">Gross wins / losses</div>
         </div>
         <div class="stat {% if stats.trades.total_realized_pl > 0 %}positive{% elif stats.trades.total_realized_pl < 0 %}negative{% endif %}">
